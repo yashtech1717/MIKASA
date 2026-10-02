@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>Sign In</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Anton&family=Bebas+Neue&family=Black+Ops+One&family=Bodoni+Moda:wght@400;700&family=Cinzel:wght@400;700&family=Comfortaa:wght@400;700&family=DM+Serif+Display&family=Fjalla+One&family=Great+Vibes&family=Josefin+Sans:wght@400;700&family=Lobster&family=Major+Mono+Display&family=Montserrat:wght@400;700;900&family=Orbitron:wght@400;700;900&family=Oswald:wght@400;700&family=Pacifico&family=Permanent+Marker&family=Playfair+Display:wght@400;700;900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Poiret+One&family=Raleway:wght@400;700;900&family=Righteous&family=Roboto+Mono:wght@400;700&family=Rubik:wght@400;900&family=Russo+One&family=Space+Grotesk:wght@400;700&family=Special+Elite&family=Syncopate:wght@400;700&family=Unbounded:wght@400;700;900&family=Yellowtail&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=27.0">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✨</text></svg>">
+  <!-- Supabase Cloud SDK for permanent online storage -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <!-- Fullscreen Ambient Theater Layer (Symmetrical Top & Bottom Fill) -->
+  <div class="video-ambient-container" id="videoContainer">
+    <video id="bgVideoBlur" class="video-blur" autoplay playsinline loop muted preload="auto">
+      <source src="assets/love_story_1.mp4" type="video/mp4">
+      <source src="assets/love_story_2.mp4" type="video/mp4">
+    </video>
+    <!-- Radiant Dynamic Ambient Orbs -->
+    <div class="ambient-orb ambient-orb-top"></div>
+    <div class="ambient-orb ambient-orb-bottom"></div>
+    <div class="video-overlay"></div>
+    <div class="vignette-overlay"></div>
+  </div>
+
+  <!-- Centered Video Stage (Middle of Phone Screen) -->
+  <main class="theater-stage" id="theaterStage">
+    
+    <!-- Top Ambient Zone (Transparent CINEMA Text) -->
+    <header class="stage-zone stage-zone-top">
+      <div class="glass-text" id="cinematicText" data-text="YASH">YASH</div>
+    </header>
+
+    <!-- Main Complete Video Frame -->
+    <div class="video-frame-box">
+      <!-- Main Complete Video (Centered, 100% Complete Size, Zero Cropping, Seamless Playback) -->
+      <video id="bgVideo" class="video-main" autoplay playsinline loop preload="auto">
+        <source src="assets/love_story_1.mp4" type="video/mp4">
+        <source src="assets/love_story_2.mp4" type="video/mp4">
+      </video>
+
+      <!-- Ambient Stage Ground Reflection -->
+      <div class="video-frame-reflection"></div>
+    </div>
+
+    <!-- Down Ambient Zone (Clean Floating ID, Password & Submit Section - Zero Box Blur) -->
+    <footer class="stage-zone stage-zone-bottom">
+      
+      <!-- Clean Floating Auth Form (No enclosing blurry card) -->
+      <form id="loginForm" class="clean-auth-form" novalidate>
+        
+        <!-- ID Field -->
+        <div class="auth-field-wrapper">
+          <div class="clean-input-capsule">
+            <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+            <input type="text" id="username" class="clean-text-input" placeholder="ID / Email" required autocomplete="username" inputmode="text">
+          </div>
+          <span class="field-error" id="usernameError"></span>
+        </div>
+
+        <!-- Password Field -->
+        <div class="auth-field-wrapper">
+          <div class="clean-input-capsule">
+            <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+            <input type="password" id="password" class="clean-text-input password-input" placeholder="Password" required autocomplete="current-password">
+            <button type="button" class="clean-eye-btn" id="eyeToggle" aria-label="Toggle password visibility">
+              <svg class="eye-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+              <svg class="eye-hide hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                <line x1="1" y1="1" x2="23" y2="23"></line>
+              </svg>
+            </button>
+          </div>
+          <span class="field-error" id="passwordError"></span>
+        </div>
+
+        <!-- Next-Level Glowing Submit Button -->
+        <button type="submit" class="clean-submit-btn" id="loginBtn">
+          <span class="btn-spinner hidden" id="loginSpinner"></span>
+          <span class="btn-text">Sign In</span>
+          <svg class="btn-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </button>
+
+      </form>
+
+      <!-- Luxury Bottom Home Pill -->
+      <div class="luxury-home-pill"></div>
+    </footer>
+
+  </main>
+
+  <!-- 5-Second Glory Welcome Cinema Screen -->
+  <div id="gloryIntroScreen" class="glory-intro-overlay hidden">
+    <div class="intro-glass-center">
+      <div class="glass-text static-glass-text" id="introCinematicText" data-text="HI GLORY LAST MSG FORM YASH">HI GLORY LAST MSG FORM YASH</div>
+      <div class="intro-progress-bar-wrap">
+        <div class="intro-progress-bar" id="introProgressBar"></div>
+      </div>
+      <div class="intro-countdown-text" id="introCountdownText">Connecting with Yash... 5s</div>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       Glory Full-Screen Vertical Feed Interface (ONLY Admin Uploaded Reel)
+       ========================================================================== -->
+  <div id="gloryFeed" class="glory-feed-container hidden">
+
+    <!-- Floating Top Bar across Feed -->
+    <header class="feed-top-bar">
+      <div class="feed-badge-pill">
+        <span class="live-dot"></span>
+        <span class="feed-badge-text">Glory Feed ✦ Live</span>
+      </div>
+      <div class="feed-top-actions">
+        <button type="button" class="feed-icon-btn" id="feedSoundBtn" aria-label="Toggle Sound" title="Sound">
+          <svg class="sound-on-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+          </svg>
+          <svg class="sound-off-icon hidden" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <line x1="23" y1="9" x2="17" y2="15"></line>
+            <line x1="17" y1="9" x2="23" y2="15"></line>
+          </svg>
+        </button>
+        <button type="button" class="feed-signout-btn" id="feedSignOutBtn">
+          <span>Sign Out</span>
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+            <polyline points="16 17 21 12 16 7"></polyline>
+            <line x1="21" y1="12" x2="9" y2="12"></line>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Scrollable Vertical Reel Feed Wrapper (N-Reels Instagram Experience) -->
+    <div class="reels-scroll-wrapper" id="reelsWrapper">
+      <!-- Dynamic Admin Uploaded Reels rendered here -->
+    </div>
+
+    <!-- Floating Navigation Bar on Bottom Right (Up / Down chevrons & counter) -->
+    <div class="feed-nav-controls" id="feedNavControls">
+      <button type="button" class="feed-nav-btn" id="feedPrevBtn" aria-label="Previous Reel">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+      </button>
+      <div class="feed-counter" id="feedCounter">1 / 1</div>
+      <button type="button" class="feed-nav-btn" id="feedNextBtn" aria-label="Next Reel">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </button>
+    </div>
+
+  </div>
+
+  <!-- View 3: Yash Admin Fullscreen Studio Modal -->
+  <div id="adminModal" class="admin-panel-overlay hidden">
+    <div class="admin-glass-card">
+      
+      <!-- Studio Header -->
+      <div class="admin-header">
+        <div class="admin-title-box">
+          <span class="admin-badge">⚡ Yash Admin Studio</span>
+          <h2 class="admin-title">Reel Production Suite</h2>
+        </div>
+        <div class="admin-header-actions">
+          <button type="button" class="admin-header-preview-btn" id="adminViewAsGloryBtn" title="Preview Glory Feed">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+            <span>View as Glory</span>
+          </button>
+          <button type="button" class="admin-close-btn" id="adminLogoutBtn" title="Sign Out">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <polyline points="16 17 21 12 16 7"></polyline>
+              <line x1="21" y1="12" x2="9" y2="12"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Real-Time Studio Metrics Strip -->
+      <div class="admin-metrics-strip">
+        <div class="metric-card" id="metricCardReels">
+          <span class="metric-icon">🎬</span>
+          <div class="metric-data">
+            <span class="metric-value" id="adminStatReels">0</span>
+            <span class="metric-label">Active Reels</span>
+          </div>
+        </div>
+        <div class="metric-card" id="metricCardReplies">
+          <span class="metric-icon">💌</span>
+          <div class="metric-data">
+            <span class="metric-value" id="adminStatReplies">0</span>
+            <span class="metric-label">Glory Replies</span>
+          </div>
+        </div>
+        <div class="metric-card" id="metricCardLogins">
+          <span class="metric-icon">🕒</span>
+          <div class="metric-data">
+            <span class="metric-value" id="adminStatLogins">0</span>
+            <span class="metric-label">Glory Logins</span>
+          </div>
+        </div>
+        <div class="metric-card" id="metricCardCloud">
+          <span class="metric-icon">☁️</span>
+          <div class="metric-data">
+            <span class="metric-value" id="adminStatCloud">Ready</span>
+            <span class="metric-label" id="adminStatCloudLabel">Supabase Storage</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Studio Navigation Tabs -->
+      <div class="admin-nav-tabs">
+        <button type="button" class="admin-tab-nav-btn active" data-tab="reels" id="tabNavReels">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+            <line x1="7" y1="2" x2="7" y2="22"></line>
+            <line x1="17" y1="2" x2="17" y2="22"></line>
+            <line x1="2" y1="12" x2="22" y2="12"></line>
+          </svg>
+          <span>🎬 Reels Studio</span>
+        </button>
+        <button type="button" class="admin-tab-nav-btn" data-tab="replies" id="tabNavReplies">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <span>💌 Glory Replies</span>
+          <span class="tab-badge" id="tabBadgeReplies">0</span>
+        </button>
+        <button type="button" class="admin-tab-nav-btn" data-tab="logins" id="tabNavLogins">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          <span>🕒 Glory Logins</span>
+          <span class="tab-badge" id="tabBadgeLogins">0</span>
+        </button>
+        <button type="button" class="admin-tab-nav-btn" data-tab="cloud" id="tabNavCloud">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+          </svg>
+          <span>☁️ Supabase Cloud & Deploy</span>
+        </button>
+      </div>
+
+      <!-- TAB PANE 1: Reels Studio -->
+      <div class="admin-tab-pane" id="adminTabPaneReels">
+        <!-- Reel Editor Form Card (Creates next reel or edits existing reel) -->
+        <div class="admin-editor-card" id="adminEditorCard">
+          <div class="admin-editor-header">
+            <div class="editor-mode-pill" id="adminFormModeBadge">
+              <span class="mode-dot"></span>
+              <span class="mode-text" id="adminFormModeText">Create Next Reel</span>
+            </div>
+            <button type="button" class="admin-cancel-edit-btn hidden" id="adminCancelEditBtn">
+              <span>✕ Cancel Edit</span>
+            </button>
+          </div>
+
+          <!-- Reel Title Input -->
+          <div class="admin-field-group">
+            <label class="admin-label" for="adminTitleInput">
+              <span>Reel Title</span>
+              <span class="label-hint">Narrative Heading</span>
+            </label>
+            <input type="text" id="adminTitleInput" class="admin-text-field" placeholder="e.g. Special Screening from Yash ❤️" value="Special Screening from Yash ❤️">
+          </div>
+
+          <!-- Reel Cinema Glass Text Input -->
+          <div class="admin-field-group">
+            <label class="admin-label" for="adminMsgInput">
+              <span>Cinema Glass Text for Glory</span>
+              <span class="label-hint">Appears in Glass Typography</span>
+            </label>
+            <textarea id="adminMsgInput" class="admin-textarea-field" rows="2" placeholder="e.g. hi glory last msg form yash">hi glory last msg form yash</textarea>
+            
+            <!-- Live Mini Cinema Glass Preview -->
+            <div class="admin-live-glass-preview">
+              <span class="live-preview-tag">Cinema Glass Live Preview:</span>
+              <div class="glass-text static-glass-text admin-mini-glass" id="adminMiniGlassPreview" data-text="HI GLORY LAST MSG FORM YASH">HI GLORY LAST MSG FORM YASH</div>
+            </div>
+          </div>
+
+          <!-- Media Option Segment: Video vs Text-Only (Video is OPTIONAL) -->
+          <div class="admin-field-group">
+            <label class="admin-label">
+              <span>Media Format (Video is Optional)</span>
+              <span class="label-hint" id="mediaOptionHint">Choose format</span>
+            </label>
+            <div class="media-toggle-tabs">
+              <button type="button" class="media-tab-btn active" id="tabVideoMode">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+                  <line x1="7" y1="2" x2="7" y2="22"></line>
+                  <line x1="17" y1="2" x2="17" y2="22"></line>
+                  <line x1="2" y1="12" x2="22" y2="12"></line>
+                </svg>
+                <span>🎬 Video Reel</span>
+              </button>
+              <button type="button" class="media-tab-btn" id="tabTextOnlyMode">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
+                  <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+                </svg>
+                <span>✍️ Text-Only (No Video)</span>
+              </button>
+            </div>
+
+            <!-- Video Controls Wrapper (Hidden when Text-Only selected) -->
+            <div class="video-media-pane" id="videoMediaPane">
+              <!-- Dropzone / File Picker (Supports 1 or Multiple Videos) -->
+              <label class="admin-dropzone" id="adminDropzone">
+                <input type="file" id="adminVideoFile" accept="video/mp4,video/webm,video/quicktime" class="hidden-file-input" multiple>
+                <svg class="dropzone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                <div class="dropzone-text">
+                  <span class="dropzone-main" id="dropzoneMainText">Tap or drop 1 or multiple video files</span>
+                  <span class="dropzone-sub" id="dropzoneSubText">MP4, WebM, MOV supported · Select multiple videos to batch create reels</span>
+                </div>
+              </label>
+
+              <!-- Preset Quick Picks -->
+              <div class="preset-row">
+                <button type="button" class="preset-btn active" data-src="assets/love_story_1.mp4">Love Story 1</button>
+                <button type="button" class="preset-btn" data-src="assets/love_story_2.mp4">Love Story 2</button>
+              </div>
+
+              <!-- Video Live Mini Preview -->
+              <div class="admin-preview-container">
+                <video id="adminPreviewVideo" class="admin-preview-video" muted playsinline loop autoplay src="assets/love_story_1.mp4"></video>
+                <span class="preview-badge" id="previewBadgeStatus">Preview: Love Story 1</span>
+              </div>
+            </div>
+
+            <!-- Text-Only Notice Pane (Shown when Text-Only selected) -->
+            <div class="textonly-media-pane hidden" id="textOnlyMediaPane">
+              <div class="textonly-info-card">
+                <div class="textonly-info-icon">✨</div>
+                <div class="textonly-info-content">
+                  <strong>Luxury Cinema Typography Reel</strong>
+                  <p>No video required. This reel will render as pure luminous cinema glass typography on Glory's feed.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Form Action Buttons -->
+          <div class="admin-editor-actions">
+            <button type="button" class="admin-broadcast-btn" id="adminSaveReelBtn">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              <span id="adminSaveBtnText">Add Reel to Feed</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Reels Lineup Manager (N Reels) -->
+        <div class="admin-section admin-reels-manager-section">
+          <div class="admin-reels-header">
+            <div class="manager-title-group">
+              <label class="admin-label">
+                <span>Glory's Reel Feed Lineup</span>
+                <span class="label-hint" id="adminReelsCount">Multiple Reels</span>
+              </label>
+              <span class="manager-subhint">Glory can swipe through all N reels 1-by-1 like Instagram</span>
+            </div>
+          </div>
+          <div class="admin-reels-scroll-list" id="adminReelsList">
+            <!-- Dynamically populated reel cards with Edit, Delete & Order actions -->
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB PANE 2: Glory Direct Replies Inbox -->
+      <div class="admin-tab-pane hidden" id="adminTabPaneReplies">
+        <div class="admin-section admin-replies-section" id="adminRepliesSection">
+          <div class="admin-reels-header">
+            <div class="manager-title-group">
+              <label class="admin-label">
+                <span>💌 Glory's Direct Replies Inbox</span>
+                <span class="label-hint" id="adminRepliesCount">0 Messages</span>
+              </label>
+              <span class="manager-subhint">Live messages sent by Glory from her reel feed</span>
+            </div>
+            <button type="button" class="admin-clear-replies-btn" id="adminClearRepliesBtn">Clear Inbox</button>
+          </div>
+          <div class="admin-replies-scroll-list" id="adminRepliesList">
+            <!-- Dynamically populated replies -->
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB PANE 3: Glory Login History & Activity Log -->
+      <div class="admin-tab-pane hidden" id="adminTabPaneLogins">
+        <div class="admin-section admin-logins-section" id="adminLoginsSection">
+          <div class="admin-reels-header">
+            <div class="manager-title-group">
+              <label class="admin-label">
+                <span>🕒 Glory Login Audits & History</span>
+                <span class="label-hint" id="adminLoginsCount">0 Sessions</span>
+              </label>
+              <span class="manager-subhint">Exact date, time, and device whenever Glory signs in</span>
+            </div>
+            <button type="button" class="admin-clear-replies-btn" id="adminClearLoginsBtn">Clear History</button>
+          </div>
+
+          <!-- Highlight Summary Card -->
+          <div class="admin-last-login-card" id="adminLastLoginCard">
+            <div class="last-login-icon">✨</div>
+            <div class="last-login-info">
+              <span class="last-login-title">Last Glory Sign-In</span>
+              <span class="last-login-time" id="adminLastLoginTime">Awaiting first session</span>
+              <span class="last-login-device" id="adminLastLoginDevice">No recorded activity yet</span>
+            </div>
+          </div>
+
+          <!-- Chronological Login History List -->
+          <div class="admin-logins-scroll-list" id="adminLoginsList">
+            <!-- Dynamically populated login cards -->
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB PANE 4: Supabase Cloud & Deployment Suite -->
+      <div class="admin-tab-pane hidden" id="adminTabPaneCloud">
+        <div class="admin-section admin-cloud-section" id="adminCloudSection">
+          <div class="admin-cloud-header">
+            <div class="manager-title-group">
+              <label class="admin-label">
+                <span>☁️ Supabase Cloud Storage & Database</span>
+                <span class="label-hint" id="supabaseStatusBadge">Storage Ready</span>
+              </label>
+              <span class="manager-subhint">Permanent cloud storage for reels, videos, glory replies, and login history</span>
+            </div>
+          </div>
+
+          <div class="admin-cloud-form">
+            <div class="admin-field-group">
+              <label class="admin-label" for="supabaseUrlInput">
+                <span>Supabase Project URL</span>
+                <span class="label-hint">https://[your-project].supabase.co</span>
+              </label>
+              <input type="text" id="supabaseUrlInput" class="admin-text-field" placeholder="https://xyzproject.supabase.co">
+            </div>
+            <div class="admin-field-group">
+              <label class="admin-label" for="supabaseKeyInput">
+                <span>Supabase Anon Public API Key</span>
+                <span class="label-hint">API Key / JWT Token</span>
+              </label>
+              <input type="password" id="supabaseKeyInput" class="admin-text-field" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
+            </div>
+            <div class="cloud-action-row">
+              <button type="button" class="admin-cloud-save-btn" id="saveSupabaseSettingsBtn">
+                <span>💾 Save & Connect Supabase</span>
+              </button>
+              <button type="button" class="admin-cloud-test-btn" id="testSupabaseSyncBtn">
+                <span>⚡ Sync All Cloud Data Now</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Deploy Info Card -->
+          <div class="admin-deploy-info-card">
+            <div class="deploy-card-header">
+              <span class="deploy-github-icon">🐙</span>
+              <div>
+                <strong>Online Deployment Ready</strong>
+                <p>GitHub Repository: <code>YASHTECH1717/MIKASA</code></p>
+              </div>
+            </div>
+            <div class="deploy-steps">
+              <div class="deploy-step-item">
+                <span class="step-num">1</span>
+                <span><strong>GitHub:</strong> Push to <code>https://github.com/YASHTECH1717/MIKASA.git</code>.</span>
+              </div>
+              <div class="deploy-step-item">
+                <span class="step-num">2</span>
+                <span><strong>Render:</strong> Connect your repository as a Web Service. <code>server.js</code> &amp; <code>render.yaml</code> automatically configure streaming!</span>
+              </div>
+              <div class="deploy-step-item">
+                <span class="step-num">3</span>
+                <span><strong>Supabase:</strong> Run <code>supabase_schema.sql</code> in your Supabase SQL editor to create all cloud tables and the <code>reels-videos</code> storage bucket.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Modern Floating Toast Stack -->
+  <div class="toast-stack" id="toastContainer"></div>
+
+  <script src="app.js?v=27.0"></script>
+</body>
+</html>

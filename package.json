@@ -1,0 +1,21 @@
+{
+  "name": "cinematic-feed-mikasa",
+  "version": "1.0.0",
+  "description": "Exclusive Cinematic Feed & Admin Production Studio for Glory and Yash",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "cinematic",
+    "video-feed",
+    "instagram-reels",
+    "supabase",
+    "render"
+  ],
+  "author": "YASH",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
