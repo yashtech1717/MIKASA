@@ -43,8 +43,13 @@ alter table public.glory_replies enable row level security;
 alter table public.glory_logins enable row level security;
 
 -- Policies for anon access (Allows Yash and Glory clients to read and write without auth blockers)
+drop policy if exists "Allow all operations on reels" on public.reels;
 create policy "Allow all operations on reels" on public.reels for all using (true) with check (true);
+
+drop policy if exists "Allow all operations on glory_replies" on public.glory_replies;
 create policy "Allow all operations on glory_replies" on public.glory_replies for all using (true) with check (true);
+
+drop policy if exists "Allow all operations on glory_logins" on public.glory_logins;
 create policy "Allow all operations on glory_logins" on public.glory_logins for all using (true) with check (true);
 
 -- 5. Storage Bucket for Uploaded Videos
@@ -52,7 +57,15 @@ insert into storage.buckets (id, name, public)
 values ('reels-videos', 'reels-videos', true)
 on conflict (id) do nothing;
 
+drop policy if exists "Allow public bucket read" on storage.objects;
 create policy "Allow public bucket read" on storage.objects for select using (bucket_id = 'reels-videos');
+
+drop policy if exists "Allow public bucket insert" on storage.objects;
 create policy "Allow public bucket insert" on storage.objects for insert with check (bucket_id = 'reels-videos');
+
+drop policy if exists "Allow public bucket update" on storage.objects;
 create policy "Allow public bucket update" on storage.objects for update with check (bucket_id = 'reels-videos');
+
+drop policy if exists "Allow public bucket delete" on storage.objects;
 create policy "Allow public bucket delete" on storage.objects for delete using (bucket_id = 'reels-videos');
+

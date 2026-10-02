@@ -988,6 +988,7 @@
     if (targetTab === 'reels') renderAdminReelsManager();
     if (targetTab === 'replies') renderAdminReplies();
     if (targetTab === 'logins') renderGloryLogins();
+    if (targetTab === 'cloud') loadRenderEnvConfig();
     updateAdminMetrics();
   }
 
@@ -1011,7 +1012,7 @@
     return null;
   }
 
-  function initSupabase() {
+  function initSupabase(overrideBadge) {
     let savedUrl = (localStorage.getItem('supabase_project_url') || '').trim();
     let savedKey = (localStorage.getItem('supabase_anon_key') || '').trim();
 
@@ -1029,7 +1030,7 @@
         try {
           supabaseClient = createClientFn(savedUrl, savedKey);
           if (supabaseStatusBadge) {
-            supabaseStatusBadge.textContent = 'Cloud Connected';
+            supabaseStatusBadge.textContent = overrideBadge || 'Cloud Connected';
             supabaseStatusBadge.style.color = '#10b981';
           }
           updateAdminMetrics();
@@ -1097,7 +1098,7 @@
       };
 
       if (supabaseStatusBadge) {
-        supabaseStatusBadge.textContent = 'Cloud Connected (REST)';
+        supabaseStatusBadge.textContent = overrideBadge || 'Cloud Connected (REST)';
         supabaseStatusBadge.style.color = '#10b981';
       }
       updateAdminMetrics();
@@ -1109,6 +1110,44 @@
       supabaseStatusBadge.style.color = '#fcd5b5';
     }
     updateAdminMetrics();
+    return false;
+  }
+
+  // --- Fetch Render Cloud Environment Variables (/api/config) ---
+  async function loadRenderEnvConfig() {
+    try {
+      const res = await fetch('/api/config');
+      if (!res.ok) return false;
+      const cfg = await res.json();
+      if (cfg && cfg.supabaseUrl && cfg.supabaseAnonKey) {
+        localStorage.setItem('supabase_project_url', cfg.supabaseUrl);
+        localStorage.setItem('supabase_anon_key', cfg.supabaseAnonKey);
+
+        const banner = document.getElementById('cloudEnvBanner');
+        if (banner) banner.style.display = 'flex';
+
+        initSupabase('Cloud Active (Render Env)');
+        console.log('⚡ Supabase automatically connected via Render Environment Variables!');
+
+        // Run background cloud sync
+        syncAllCloudData({ quiet: true }).then(() => {
+          const currentRole = localStorage.getItem('cinema_session_role');
+          if (currentRole === 'glory') {
+            renderGloryFeed();
+          } else if (currentRole === 'admin') {
+            renderAdminReelsManager();
+            renderAdminReplies();
+            renderGloryLogins();
+          }
+        }).catch(err => {
+          console.warn('Auto cloud sync notice:', err);
+        });
+
+        return true;
+      }
+    } catch (e) {
+      // Standalone static file or offline, ignore
+    }
     return false;
   }
 
@@ -1158,6 +1197,7 @@
 
   async function syncAllCloudData(e) {
     if (e && e.preventDefault) e.preventDefault();
+    const isQuiet = (e && e.quiet === true);
 
     const syncBtn = document.getElementById('testSupabaseSyncBtn');
     const syncBtnText = document.getElementById('syncSupabaseBtnText') || syncBtn;
@@ -1168,12 +1208,14 @@
     }
 
     if (!supabaseClient) {
-      showToast('Please paste and save your Supabase URL & Anon Key first.', 'error');
+      if (!isQuiet) showToast('Please paste and save your Supabase URL & Anon Key first.', 'error');
       return;
     }
 
-    if (syncBtnText) syncBtnText.textContent = '⏳ Syncing Cloud...';
-    showToast('⚡ Syncing with Supabase Cloud...', 'info');
+    if (!isQuiet) {
+      if (syncBtnText) syncBtnText.textContent = '⏳ Syncing Cloud...';
+      showToast('⚡ Syncing with Supabase Cloud...', 'info');
+    }
 
     try {
       // 1. Sync Reels from cloud or push local
@@ -1264,12 +1306,16 @@
       }
 
       updateAdminMetrics();
-      showToast('✓ Cloud Sync Complete! All data secured in Supabase.', 'success');
+      if (!isQuiet) {
+        showToast('✓ Cloud Sync Complete! All data secured in Supabase.', 'success');
+      }
     } catch (err) {
       console.error('Cloud sync error:', err);
-      showToast('Cloud notice: ' + (err.message || 'Check database connection'), 'error');
+      if (!isQuiet) {
+        showToast('Cloud notice: ' + (err.message || 'Check database connection'), 'error');
+      }
     } finally {
-      if (syncBtnText) syncBtnText.textContent = origText;
+      if (!isQuiet && syncBtnText) syncBtnText.textContent = origText;
     }
   }
 
@@ -2209,6 +2255,7 @@
 
   // --- Initialize Saved Session or Default View ---
   initSupabase();
+  loadRenderEnvConfig();
   const urlParams = new URLSearchParams(window.location.search);
   const paramRole = urlParams.get('role');
   const savedRole = paramRole || localStorage.getItem('cinema_session_role');

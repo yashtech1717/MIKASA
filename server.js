@@ -38,6 +38,24 @@ const server = http.createServer((req, res) => {
   }
 
   let cleanUrl = req.url.split('?')[0];
+
+  // API Route: Public cloud config for Supabase (injected from Render Environment Variables)
+  if (cleanUrl === '/api/config') {
+    const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+    const supabaseAnonKey = (process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
+
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-cache, no-store, must-revalidate'
+    });
+    res.end(JSON.stringify({
+      supabaseUrl,
+      supabaseAnonKey,
+      hasEnvConfig: Boolean(supabaseUrl && supabaseAnonKey)
+    }));
+    return;
+  }
+
   if (cleanUrl === '/' || cleanUrl === '') {
     cleanUrl = '/index.html';
   }

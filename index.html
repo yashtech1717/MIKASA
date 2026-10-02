@@ -468,17 +468,26 @@
           </div>
 
           <div class="admin-cloud-form">
+            <!-- Active Render Environment Banner -->
+            <div id="cloudEnvBanner" style="display:none; align-items:center; gap:10px; padding:12px 16px; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.35); border-radius:12px; margin-bottom:16px;">
+              <span style="font-size:18px;">🔒</span>
+              <div style="font-size:13px; color:#10b981; line-height:1.4;">
+                <strong>Auto-Connected via Render Environment Variables!</strong><br>
+                <span style="color:#d1fae5; font-size:12px;">Credentials loaded securely from <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code>. Manual input is optional.</span>
+              </div>
+            </div>
+
             <div class="admin-field-group">
               <label class="admin-label" for="supabaseUrlInput">
                 <span>Supabase Project URL</span>
-                <span class="label-hint">https://[your-project].supabase.co</span>
+                <span class="label-hint">https://[your-project].supabase.co (or set SUPABASE_URL in Render)</span>
               </label>
               <input type="text" id="supabaseUrlInput" class="admin-text-field" placeholder="https://xyzproject.supabase.co">
             </div>
             <div class="admin-field-group">
               <label class="admin-label" for="supabaseKeyInput">
                 <span>Supabase Anon Public API Key</span>
-                <span class="label-hint">API Key / JWT Token</span>
+                <span class="label-hint">anon key (or set SUPABASE_ANON_KEY in Render)</span>
               </label>
               <input type="password" id="supabaseKeyInput" class="admin-text-field" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
             </div>
@@ -497,22 +506,24 @@
             <div class="deploy-card-header">
               <span class="deploy-github-icon">🐙</span>
               <div>
-                <strong>Online Deployment Ready</strong>
+                <strong>Online Deployment Ready (Render + Supabase)</strong>
                 <p>GitHub Repository: <code>YASHTECH1717/MIKASA</code></p>
               </div>
             </div>
             <div class="deploy-steps">
               <div class="deploy-step-item">
                 <span class="step-num">1</span>
-                <span><strong>GitHub:</strong> Push to <code>https://github.com/YASHTECH1717/MIKASA.git</code>.</span>
+                <span><strong>Supabase SQL:</strong> Run <code>supabase_schema.sql</code> in the Supabase SQL editor to create all tables and storage.</span>
               </div>
               <div class="deploy-step-item">
                 <span class="step-num">2</span>
-                <span><strong>Render:</strong> Connect your repository as a Web Service. <code>server.js</code> &amp; <code>render.yaml</code> automatically configure streaming!</span>
+                <span><strong>Render Environment:</strong> In your Render dashboard &rarr; Service &rarr; <strong>Environment</strong>, add:<br>
+                • <code>SUPABASE_URL</code>: <code>https://your-project.supabase.co</code><br>
+                • <code>SUPABASE_ANON_KEY</code>: <code>eyJhbGci...</code></span>
               </div>
               <div class="deploy-step-item">
                 <span class="step-num">3</span>
-                <span><strong>Supabase:</strong> Run <code>supabase_schema.sql</code> in your Supabase SQL editor to create all cloud tables and the <code>reels-videos</code> storage bucket.</span>
+                <span><strong>Instant Sync:</strong> Render automatically reads these variables & connects the feed on every phone and laptop!</span>
               </div>
             </div>
           </div>
