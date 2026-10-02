@@ -480,11 +480,11 @@
               <input type="password" id="supabaseKeyInput" class="admin-text-field" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
             </div>
             <div class="cloud-action-row">
-              <button type="button" class="admin-cloud-save-btn" id="saveSupabaseSettingsBtn">
-                <span>💾 Save & Connect Supabase</span>
+              <button type="button" class="admin-cloud-save-btn" id="saveSupabaseSettingsBtn" onclick="if(window.__saveSupabaseSettings){window.__saveSupabaseSettings(event);}">
+                <span id="saveSupabaseBtnText">💾 Save & Connect Supabase</span>
               </button>
-              <button type="button" class="admin-cloud-test-btn" id="testSupabaseSyncBtn">
-                <span>⚡ Sync All Cloud Data Now</span>
+              <button type="button" class="admin-cloud-test-btn" id="testSupabaseSyncBtn" onclick="if(window.__syncAllCloudData){window.__syncAllCloudData(event);}">
+                <span id="syncSupabaseBtnText">⚡ Sync All Cloud Data Now</span>
               </button>
             </div>
           </div>
@@ -522,6 +522,6 @@
   <!-- Modern Floating Toast Stack -->
   <div class="toast-stack" id="toastContainer"></div>
 
-  <script src="app.js?v=27.0"></script>
+  <script src="app.js?v=30.0"></script>
 </body>
 </html>

@@ -1000,26 +1000,111 @@
   // --- Supabase Cloud & Deployment Suite Integration ---
   let supabaseClient = null;
 
+  function getSupabaseFactory() {
+    if (typeof window !== 'undefined') {
+      if (window.supabase && typeof window.supabase.createClient === 'function') {
+        return window.supabase.createClient;
+      }
+      if (typeof supabase !== 'undefined' && typeof supabase.createClient === 'function') {
+        return supabase.createClient;
+      }
+    }
+    return null;
+  }
+
   function initSupabase() {
-    const savedUrl = localStorage.getItem('supabase_project_url') || '';
-    const savedKey = localStorage.getItem('supabase_anon_key') || '';
+    let savedUrl = (localStorage.getItem('supabase_project_url') || '').trim();
+    let savedKey = (localStorage.getItem('supabase_anon_key') || '').trim();
+
+    // Clean any accidentally pasted quotes or trailing slashes
+    savedUrl = savedUrl.replace(/^['"]|['"]$/g, '').replace(/\/+$/, '');
+    savedKey = savedKey.replace(/^['"]|['"]$/g, '');
 
     if (supabaseUrlInput) supabaseUrlInput.value = savedUrl;
     if (supabaseKeyInput) supabaseKeyInput.value = savedKey;
 
-    if (savedUrl && savedKey && window.supabase && typeof window.supabase.createClient === 'function') {
-      try {
-        supabaseClient = window.supabase.createClient(savedUrl, savedKey);
-        if (supabaseStatusBadge) {
-          supabaseStatusBadge.textContent = 'Cloud Connected';
-          supabaseStatusBadge.style.color = '#10b981';
+    const createClientFn = getSupabaseFactory();
+
+    if (savedUrl && savedKey) {
+      if (createClientFn) {
+        try {
+          supabaseClient = createClientFn(savedUrl, savedKey);
+          if (supabaseStatusBadge) {
+            supabaseStatusBadge.textContent = 'Cloud Connected';
+            supabaseStatusBadge.style.color = '#10b981';
+          }
+          updateAdminMetrics();
+          return true;
+        } catch (err) {
+          console.warn('Supabase SDK initialization warning:', err);
         }
-        updateAdminMetrics();
-        return true;
-      } catch (err) {
-        console.warn('Supabase initialization error:', err);
       }
+
+      // REST API fallback client if SDK script is blocked or delayed
+      supabaseClient = {
+        from: (tableName) => ({
+          select: async (cols = '*') => {
+            try {
+              const res = await fetch(`${savedUrl}/rest/v1/${tableName}?select=${encodeURIComponent(cols)}`, {
+                headers: {
+                  'apikey': savedKey,
+                  'Authorization': `Bearer ${savedKey}`
+                }
+              });
+              if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+              const data = await res.json();
+              return { data, error: null };
+            } catch (err) {
+              return { data: null, error: err };
+            }
+          },
+          insert: async (rows) => {
+            try {
+              const res = await fetch(`${savedUrl}/rest/v1/${tableName}`, {
+                method: 'POST',
+                headers: {
+                  'apikey': savedKey,
+                  'Authorization': `Bearer ${savedKey}`,
+                  'Content-Type': 'application/json',
+                  'Prefer': 'return=minimal'
+                },
+                body: JSON.stringify(rows)
+              });
+              if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+              return { data: null, error: null };
+            } catch (err) {
+              return { data: null, error: err };
+            }
+          },
+          upsert: async (row) => {
+            try {
+              const res = await fetch(`${savedUrl}/rest/v1/${tableName}`, {
+                method: 'POST',
+                headers: {
+                  'apikey': savedKey,
+                  'Authorization': `Bearer ${savedKey}`,
+                  'Content-Type': 'application/json',
+                  'Prefer': 'resolution=merge-duplicates'
+                },
+                body: JSON.stringify(row)
+              });
+              if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+              return { data: null, error: null };
+            } catch (err) {
+              return { data: null, error: err };
+            }
+          }
+        })
+      };
+
+      if (supabaseStatusBadge) {
+        supabaseStatusBadge.textContent = 'Cloud Connected (REST)';
+        supabaseStatusBadge.style.color = '#10b981';
+      }
+      updateAdminMetrics();
+      return true;
     }
+
     if (supabaseStatusBadge) {
       supabaseStatusBadge.textContent = 'IndexedDB Local Cache Active';
       supabaseStatusBadge.style.color = '#fcd5b5';
@@ -1028,41 +1113,74 @@
     return false;
   }
 
-  async function saveSupabaseConfig() {
-    const url = supabaseUrlInput ? supabaseUrlInput.value.trim() : '';
-    const key = supabaseKeyInput ? supabaseKeyInput.value.trim() : '';
+  async function saveSupabaseConfig(e) {
+    if (e && e.preventDefault) e.preventDefault();
+
+    const saveBtn = document.getElementById('saveSupabaseSettingsBtn');
+    const saveBtnText = document.getElementById('saveSupabaseBtnText') || saveBtn;
+    const origText = saveBtnText ? saveBtnText.textContent : '💾 Save & Connect Supabase';
+
+    let url = (supabaseUrlInput ? supabaseUrlInput.value.trim() : '');
+    let key = (supabaseKeyInput ? supabaseKeyInput.value.trim() : '');
+
+    // Clean inputs: remove quotes, remove trailing slashes
+    url = url.replace(/^['"]|['"]$/g, '').replace(/\/+$/, '').trim();
+    key = key.replace(/^['"]|['"]$/g, '').trim();
 
     if (!url || !key) {
-      showToast('Please enter both Supabase URL and Anon Public Key.', 'error');
+      showToast('Please paste both your Supabase Project URL and Anon Public Key.', 'error');
+      if (supabaseUrlInput && !url) supabaseUrlInput.focus();
+      else if (supabaseKeyInput && !key) supabaseKeyInput.focus();
       return;
     }
+
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'https://' + url;
+      if (supabaseUrlInput) supabaseUrlInput.value = url;
+    }
+
+    if (saveBtnText) saveBtnText.textContent = '⏳ Connecting...';
 
     localStorage.setItem('supabase_project_url', url);
     localStorage.setItem('supabase_anon_key', key);
 
     const ok = initSupabase();
-    if (ok) {
-      showToast('✓ Connected to Supabase Cloud! Syncing data...', 'success');
-      await syncAllCloudData();
-    } else {
-      showToast('Could not initialize Supabase. Check credentials.', 'error');
-    }
+
+    setTimeout(async () => {
+      if (saveBtnText) saveBtnText.textContent = origText;
+      if (ok) {
+        showToast('✓ Connected to Supabase Cloud! Syncing data now...', 'success');
+        await syncAllCloudData();
+      } else {
+        showToast('Connected locally. Please ensure URL & Anon Key are valid.', 'info');
+      }
+    }, 400);
   }
 
-  async function syncAllCloudData() {
+  async function syncAllCloudData(e) {
+    if (e && e.preventDefault) e.preventDefault();
+
+    const syncBtn = document.getElementById('testSupabaseSyncBtn');
+    const syncBtnText = document.getElementById('syncSupabaseBtnText') || syncBtn;
+    const origText = syncBtnText ? syncBtnText.textContent : '⚡ Sync All Cloud Data Now';
+
     if (!supabaseClient) {
-      showToast('Enter your Supabase URL & Anon Key to connect cloud.', 'info');
+      initSupabase();
+    }
+
+    if (!supabaseClient) {
+      showToast('Please paste and save your Supabase URL & Anon Key first.', 'error');
       return;
     }
 
+    if (syncBtnText) syncBtnText.textContent = '⏳ Syncing Cloud...';
     showToast('⚡ Syncing with Supabase Cloud...', 'info');
 
     try {
       // 1. Sync Reels from cloud or push local
       const { data: cloudReels, error: reelErr } = await supabaseClient
         .from('reels')
-        .select('*')
-        .order('created_at', { ascending: true });
+        .select('*');
 
       if (!reelErr && cloudReels && cloudReels.length > 0) {
         const mapped = cloudReels.map(r => ({
@@ -1098,8 +1216,7 @@
       // 2. Sync Glory Replies
       const { data: cloudReplies, error: repErr } = await supabaseClient
         .from('glory_replies')
-        .select('*')
-        .order('created_at', { ascending: false });
+        .select('*');
 
       if (!repErr && cloudReplies) {
         if (cloudReplies.length > 0) {
@@ -1133,9 +1250,7 @@
       // 3. Sync Glory Logins
       const { data: cloudLogins, error: loginErr } = await supabaseClient
         .from('glory_logins')
-        .select('*')
-        .order('logged_in_at', { ascending: false })
-        .limit(50);
+        .select('*');
 
       if (!loginErr && cloudLogins && cloudLogins.length > 0) {
         const mappedLogins = cloudLogins.map(cl => ({
@@ -1153,15 +1268,23 @@
       showToast('✓ Cloud Sync Complete! All data secured in Supabase.', 'success');
     } catch (err) {
       console.error('Cloud sync error:', err);
-      showToast('Cloud sync notice: ' + (err.message || 'Check database connection'), 'error');
+      showToast('Cloud notice: ' + (err.message || 'Check database connection'), 'error');
+    } finally {
+      if (syncBtnText) syncBtnText.textContent = origText;
     }
   }
 
+  // Bind to window for direct HTML inline calls
+  window.__saveSupabaseSettings = saveSupabaseConfig;
+  window.__syncAllCloudData = syncAllCloudData;
+
   if (saveSupabaseSettingsBtn) {
     saveSupabaseSettingsBtn.onclick = saveSupabaseConfig;
+    saveSupabaseSettingsBtn.addEventListener('click', saveSupabaseConfig);
   }
   if (testSupabaseSyncBtn) {
     testSupabaseSyncBtn.onclick = syncAllCloudData;
+    testSupabaseSyncBtn.addEventListener('click', syncAllCloudData);
   }
 
   // --- Start / Cancel Reel Editing ---
