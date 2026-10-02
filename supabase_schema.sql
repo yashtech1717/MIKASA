@@ -13,27 +13,28 @@ create table if not exists public.reels (
   video_key text default '',
   video_url text default '',
   preset_src text default 'assets/love_story_1.mp4',
-  created_at bigint not null default (extract(epoch from now()) * 1000)::bigint
+  created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
 -- 2. Table: Glory Direct Replies (Messages sent from Glory to Yash Admin)
 create table if not exists public.glory_replies (
   id text primary key,
-  text text not null,
+  reel_id text default '',
   reel_index integer not null default 1,
   reel_title text default '',
   reel_text text default '',
+  reply_text text not null,
   sender text not null default 'Glory',
-  created_at bigint not null default (extract(epoch from now()) * 1000)::bigint
+  created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- 3. Table: Glory Login History (Audited Time & Date of Glory Sessions)
+-- 3. Table: Glory Login History (Audited Time, Date & Device of Glory Sessions)
 create table if not exists public.glory_logins (
   id text primary key,
-  timestamp bigint not null default (extract(epoch from now()) * 1000)::bigint,
-  date_string text not null,
-  device text default 'Mobile / Desktop',
-  screen text default ''
+  username text not null default 'glory',
+  device_info text default 'Mobile / Desktop',
+  logged_in_at text not null default timezone('utc'::text, now())::text,
+  timestamp bigint default (extract(epoch from now()) * 1000)::bigint
 );
 
 -- 4. Enable Row Level Security (RLS) & Public Anonymous Access for Demo
