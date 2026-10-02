@@ -890,16 +890,16 @@ html, body {
 
 .admin-glass-card {
   width: 100%;
-  max-width: 500px;
-  max-height: 90vh;
-  max-height: 90dvh;
+  max-width: min(94vw, 680px);
+  max-height: 92vh;
+  max-height: 92dvh;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 51, 102, 0.4) transparent;
   background: rgba(18, 10, 30, 0.94);
   border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 24px;
-  padding: 24px 22px;
+  padding: 24px 24px;
   box-shadow: 
     0 25px 60px rgba(0, 0, 0, 0.85),
     0 0 40px rgba(255, 51, 102, 0.25),
@@ -2530,6 +2530,7 @@ html, body {
 .metric-data {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .metric-value {
@@ -2538,14 +2539,20 @@ html, body {
   font-weight: 700;
   color: #fff;
   line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .metric-label {
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: rgba(255, 255, 255, 0.55);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ==========================================================================
@@ -2580,6 +2587,7 @@ html, body {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+  flex-shrink: 0;
   transition: all 0.2s ease;
 }
 

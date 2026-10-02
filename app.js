@@ -962,11 +962,11 @@
       if (supabaseClient) {
         adminStatCloud.textContent = 'Active';
         adminStatCloud.style.color = '#10b981';
-        adminStatCloudLabel.textContent = 'Supabase Cloud Sync';
+        adminStatCloudLabel.textContent = 'Supabase Cloud';
       } else {
         adminStatCloud.textContent = 'Ready';
         adminStatCloud.style.color = '#fcd5b5';
-        adminStatCloudLabel.textContent = 'IndexedDB Local Cache';
+        adminStatCloudLabel.textContent = 'Local Cache';
       }
     }
   }
