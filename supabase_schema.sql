@@ -37,20 +37,15 @@ create table if not exists public.glory_logins (
   timestamp bigint default (extract(epoch from now()) * 1000)::bigint
 );
 
--- 4. Enable Row Level Security (RLS) & Public Anonymous Access for Demo
-alter table public.reels enable row level security;
-alter table public.glory_replies enable row level security;
-alter table public.glory_logins enable row level security;
+-- 4. Enable Public Anonymous Access (UNRESTRICTED like other demo tables)
+alter table public.reels disable row level security;
+alter table public.glory_replies disable row level security;
+alter table public.glory_logins disable row level security;
 
--- Policies for anon access (Allows Yash and Glory clients to read and write without auth blockers)
-drop policy if exists "Allow all operations on reels" on public.reels;
-create policy "Allow all operations on reels" on public.reels for all using (true) with check (true);
-
-drop policy if exists "Allow all operations on glory_replies" on public.glory_replies;
-create policy "Allow all operations on glory_replies" on public.glory_replies for all using (true) with check (true);
-
-drop policy if exists "Allow all operations on glory_logins" on public.glory_logins;
-create policy "Allow all operations on glory_logins" on public.glory_logins for all using (true) with check (true);
+grant all on table public.reels to anon, authenticated, service_role, postgres;
+grant all on table public.glory_replies to anon, authenticated, service_role, postgres;
+grant all on table public.glory_logins to anon, authenticated, service_role, postgres;
+grant all on schema public to anon, authenticated, service_role, postgres;
 
 -- 5. Storage Bucket for Uploaded Videos
 insert into storage.buckets (id, name, public) 

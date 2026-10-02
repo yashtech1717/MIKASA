@@ -1324,8 +1324,9 @@ html, body {
 }
 
 .reel-slide:not(.revealed) .reel-video-frame-box {
-  filter: brightness(0.4) blur(3px);
-  transform: scale(0.95);
+  opacity: 0.88;
+  transform: scale(0.97);
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
 }
 
 .reel-slide.revealed .reel-zone-top {
@@ -1338,7 +1339,7 @@ html, body {
 }
 
 .reel-slide.revealed .reel-video-frame-box {
-  filter: none !important;
+  opacity: 1;
   transform: scale(1);
 }
 

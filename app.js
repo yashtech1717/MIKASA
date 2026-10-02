@@ -185,16 +185,7 @@
 
   async function saveVideoBlob(blobOrFile, key = 'broadcastVideo') {
     try {
-      let pureBlob = blobOrFile;
-      if (blobOrFile && (blobOrFile instanceof File || blobOrFile.arrayBuffer)) {
-        try {
-          const buffer = await blobOrFile.arrayBuffer();
-          pureBlob = new Blob([buffer], { type: blobOrFile.type || 'video/mp4' });
-        } catch (convErr) {
-          console.warn('Buffer conversion fallback:', convErr);
-          pureBlob = blobOrFile;
-        }
-      }
+      const pureBlob = blobOrFile;
       const db = await openDB();
       return new Promise((resolve, reject) => {
         const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -238,16 +229,7 @@
     }
     const blob = await loadVideoBlob(key);
     if (blob) {
-      let safeBlob = blob;
-      if (blob instanceof File || blob.arrayBuffer) {
-        try {
-          const buffer = await blob.arrayBuffer();
-          safeBlob = new Blob([buffer], { type: blob.type || 'video/mp4' });
-        } catch (e) {
-          safeBlob = blob;
-        }
-      }
-      const url = URL.createObjectURL(safeBlob);
+      const url = URL.createObjectURL(blob);
       blobUrlCache.set(key, url);
       return url;
     }
@@ -1078,7 +1060,7 @@
           },
           upsert: async (row) => {
             try {
-              const res = await fetch(`${savedUrl}/rest/v1/${tableName}`, {
+              const res = await fetch(`${savedUrl}/rest/v1/${tableName}?on_conflict=id`, {
                 method: 'POST',
                 headers: {
                   'apikey': savedKey,
@@ -1094,7 +1076,32 @@
               return { data: null, error: err };
             }
           }
-        })
+        }),
+        storage: {
+          from: (bucketName) => ({
+            upload: async (storagePath, fileBody, options = {}) => {
+              try {
+                const res = await fetch(`${savedUrl}/storage/v1/object/${bucketName}/${storagePath}`, {
+                  method: 'POST',
+                  headers: {
+                    'apikey': savedKey,
+                    'Authorization': `Bearer ${savedKey}`,
+                    'Content-Type': options.contentType || fileBody.type || 'video/mp4',
+                    'x-upsert': 'true'
+                  },
+                  body: fileBody
+                });
+                if (!res.ok) throw new Error(`Storage HTTP ${res.status}: ${await res.text()}`);
+                return { data: { path: storagePath }, error: null };
+              } catch (err) {
+                return { data: null, error: err };
+              }
+            },
+            getPublicUrl: (storagePath) => ({
+              data: { publicUrl: `${savedUrl}/storage/v1/object/public/${bucketName}/${storagePath}` }
+            })
+          })
+        }
       };
 
       if (supabaseStatusBadge) {
@@ -1149,6 +1156,41 @@
       // Standalone static file or offline, ignore
     }
     return false;
+  }
+
+  // --- Upload Video to Supabase Storage Bucket ('reels-videos') ---
+  async function uploadVideoToSupabaseStorage(file, reelId) {
+    if (!supabaseClient) return null;
+    try {
+      const ext = (file.name && file.name.includes('.')) ? file.name.split('.').pop() : 'mp4';
+      const cleanName = `reel_${reelId}_${Date.now()}.${ext}`;
+      const storagePath = `uploads/${cleanName}`;
+
+      if (supabaseClient.storage && typeof supabaseClient.storage.from === 'function') {
+        const { data, error } = await supabaseClient
+          .storage
+          .from('reels-videos')
+          .upload(storagePath, file, {
+            contentType: file.type || 'video/mp4',
+            upsert: true
+          });
+
+        if (error) {
+          console.warn('Supabase storage upload notice:', error);
+          return null;
+        }
+
+        const { data: urlData } = supabaseClient
+          .storage
+          .from('reels-videos')
+          .getPublicUrl(storagePath);
+
+        return urlData ? urlData.publicUrl : null;
+      }
+    } catch (err) {
+      console.warn('Storage upload error:', err);
+    }
+    return null;
   }
 
   async function saveSupabaseConfig(e) {
@@ -1246,11 +1288,11 @@
             text: lr.text,
             media_type: lr.mediaType,
             video_type: lr.videoType,
-            video_key: lr.videoKey,
+            video_key: lr.videoKey || '',
             preset_src: lr.presetSrc || '',
             video_url: lr.videoUrl || '',
             created_at: new Date(lr.createdAt || Date.now()).toISOString()
-          });
+          }, { onConflict: 'id' });
         }
       }
 
@@ -1283,7 +1325,7 @@
               reel_text: lrep.reelText,
               reply_text: lrep.text,
               created_at: new Date(lrep.createdAt || Date.now()).toISOString()
-            });
+            }, { onConflict: 'id' });
           }
         }
       }
@@ -1465,13 +1507,22 @@
 
         if (selectedMediaType === 'video') {
           if (stagedCustomVideoBlob) {
-            const videoKey = 'reel_video_' + reel.id;
-            showToast('Saving updated video file...', 'info');
-            await saveVideoBlob(stagedCustomVideoBlob, videoKey);
-            reel.videoType = 'blob';
-            reel.videoKey = videoKey;
+            const videoFile = stagedCustomVideoBlob;
             stagedCustomVideoBlob = null;
-          } else if (!reel.videoKey) {
+            showToast('☁️ Uploading video to Supabase Cloud...', 'info');
+
+            const cloudUrl = await uploadVideoToSupabaseStorage(videoFile, reel.id);
+            if (cloudUrl) {
+              reel.videoUrl = cloudUrl;
+              reel.videoType = 'url';
+              showToast('✓ Video uploaded to Supabase Storage!', 'success');
+            } else {
+              const videoKey = 'reel_video_' + reel.id;
+              await saveVideoBlob(videoFile, videoKey);
+              reel.videoType = 'blob';
+              reel.videoKey = videoKey;
+            }
+          } else if (!reel.videoKey && !reel.videoUrl) {
             reel.videoType = 'preset';
             reel.presetSrc = activePresetSrc;
           }
@@ -1483,6 +1534,7 @@
           }
           reel.videoType = 'none';
           reel.presetSrc = '';
+          reel.videoUrl = '';
         }
 
         saveReels(reels);
@@ -1492,16 +1544,28 @@
         showToast(`✓ Reel #${targetIndex + 1} updated successfully!`, 'success');
 
         if (supabaseClient) {
-          supabaseClient.from('reels').upsert({
-            id: reel.id,
-            title: reel.title,
-            text: reel.text,
-            media_type: reel.mediaType,
-            video_type: reel.videoType,
-            video_key: reel.videoKey || '',
-            preset_src: reel.presetSrc || '',
-            created_at: new Date(reel.createdAt || Date.now()).toISOString()
-          }).then(() => {}).catch(err => console.warn('Supabase reel sync error:', err));
+          try {
+            const { error: syncErr } = await supabaseClient.from('reels').upsert({
+              id: reel.id,
+              title: reel.title,
+              text: reel.text,
+              media_type: reel.mediaType,
+              video_type: reel.videoType,
+              video_key: reel.videoKey || '',
+              video_url: reel.videoUrl || '',
+              preset_src: reel.presetSrc || '',
+              created_at: new Date(reel.createdAt || Date.now()).toISOString()
+            }, { onConflict: 'id' });
+
+            if (syncErr) {
+              console.warn('Supabase reel sync warning:', syncErr);
+              showToast('Supabase notice: ' + syncErr.message, 'error');
+            } else {
+              showToast('✓ Reel & video synced to Supabase!', 'success');
+            }
+          } catch (err) {
+            console.warn('Supabase reel sync error:', err);
+          }
         }
       }
     } else {
@@ -1509,15 +1573,25 @@
       const newId = 'reel_' + Date.now();
       let videoType = 'preset';
       let videoKey = '';
+      let videoUrl = '';
       let presetSrc = activePresetSrc;
 
       if (selectedMediaType === 'video') {
         if (stagedCustomVideoBlob) {
-          videoType = 'blob';
-          videoKey = 'reel_video_' + newId;
-          showToast('Saving uploaded video to vault...', 'info');
-          await saveVideoBlob(stagedCustomVideoBlob, videoKey);
+          const videoFile = stagedCustomVideoBlob;
           stagedCustomVideoBlob = null;
+          showToast('☁️ Uploading video to Supabase Cloud...', 'info');
+
+          const cloudUrl = await uploadVideoToSupabaseStorage(videoFile, newId);
+          if (cloudUrl) {
+            videoUrl = cloudUrl;
+            videoType = 'url';
+            showToast('✓ Video uploaded to Supabase Storage!', 'success');
+          } else {
+            videoType = 'blob';
+            videoKey = 'reel_video_' + newId;
+            await saveVideoBlob(videoFile, videoKey);
+          }
         }
       } else {
         videoType = 'none';
@@ -1531,6 +1605,7 @@
         mediaType: selectedMediaType,
         videoType: videoType,
         videoKey: videoKey,
+        videoUrl: videoUrl,
         presetSrc: presetSrc,
         createdAt: Date.now()
       };
@@ -1547,16 +1622,28 @@
       showToast(`✓ Reel #${reels.length} added to Glory's feed!`, 'success');
 
       if (supabaseClient) {
-        supabaseClient.from('reels').upsert({
-          id: newReel.id,
-          title: newReel.title,
-          text: newReel.text,
-          media_type: newReel.mediaType,
-          video_type: newReel.videoType,
-          video_key: newReel.videoKey || '',
-          preset_src: newReel.presetSrc || '',
-          created_at: new Date(newReel.createdAt).toISOString()
-        }).then(() => {}).catch(err => console.warn('Supabase reel insert error:', err));
+        try {
+          const { error: insertErr } = await supabaseClient.from('reels').upsert({
+            id: newReel.id,
+            title: newReel.title,
+            text: newReel.text,
+            media_type: newReel.mediaType,
+            video_type: newReel.videoType,
+            video_key: newReel.videoKey || '',
+            video_url: newReel.videoUrl || '',
+            preset_src: newReel.presetSrc || '',
+            created_at: new Date(newReel.createdAt).toISOString()
+          }, { onConflict: 'id' });
+
+          if (insertErr) {
+            console.warn('Supabase reel insert notice:', insertErr);
+            showToast('Supabase notice: ' + insertErr.message, 'error');
+          } else {
+            showToast('✓ Reel & video synced to Supabase!', 'success');
+          }
+        } catch (err) {
+          console.warn('Supabase reel insert error:', err);
+        }
       }
     }
   }
@@ -1626,12 +1713,16 @@
       const index = i + 1;
       const isVideo = reel.mediaType === 'video';
 
-      let videoSrc = reel.presetSrc || DEFAULT_ADMIN_VIDEO;
-      if (isVideo && reel.videoType === 'blob' && reel.videoKey) {
+      let videoSrc = DEFAULT_ADMIN_VIDEO;
+      if (reel.videoUrl) {
+        videoSrc = reel.videoUrl;
+      } else if (isVideo && reel.videoType === 'blob' && reel.videoKey) {
         const cachedUrl = await getObjectUrlForBlob(reel.videoKey);
         if (cachedUrl) {
           videoSrc = cachedUrl;
         }
+      } else if (reel.presetSrc) {
+        videoSrc = reel.presetSrc;
       }
 
       const section = document.createElement('section');
