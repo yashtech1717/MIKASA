@@ -665,16 +665,16 @@
           </div>
         </div>
         <div class="admin-reel-actions">
-          <button type="button" class="admin-reel-action-btn admin-reel-edit-btn" data-id="${reel.id}">
+          <button type="button" class="admin-reel-action-btn admin-reel-edit-btn" onclick="if(window.__startEditingReel){window.__startEditingReel('${reel.id}');}">
             <span>✏️ Edit</span>
           </button>
-          <button type="button" class="admin-reel-action-btn admin-reel-delete-btn" data-id="${reel.id}">
+          <button type="button" class="admin-reel-action-btn admin-reel-delete-btn" onclick="if(window.__deleteReel){window.__deleteReel('${reel.id}');}">
             <span>🗑️ Delete</span>
           </button>
         </div>
       `;
 
-      // Hook Edit button
+      // Also hook programmatically
       const editBtn = item.querySelector('.admin-reel-edit-btn');
       if (editBtn) {
         editBtn.onclick = (e) => {
@@ -683,7 +683,6 @@
         };
       }
 
-      // Hook Delete button
       const delBtn = item.querySelector('.admin-reel-delete-btn');
       if (delBtn) {
         delBtn.onclick = (e) => {
@@ -1329,19 +1328,59 @@
     // Highlight in list
     renderAdminReelsManager();
 
-    // Scroll smoothly to editor
-    if (adminModal) {
-      const editorCard = document.getElementById('adminEditorCard');
-      if (editorCard) editorCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    // Scroll smoothly to editor at top of modal
+    const glassCard = document.querySelector('.admin-glass-card');
+    if (glassCard) {
+      glassCard.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    const editorCard = document.getElementById('adminEditorCard');
+    if (editorCard) {
+      editorCard.classList.remove('pulse-editor');
+      void editorCard.offsetWidth;
+      editorCard.classList.add('pulse-editor');
     }
 
-    showToast(`✏️ Now editing Reel #${index}. Update fields and tap Save.`, 'info');
+    showToast(`✏️ Editing Reel #${index}. Update fields above & tap Save!`, 'info');
   }
 
-  function cancelEditing() {
+  function addNewReel(e) {
+    if (e && e.preventDefault) e.preventDefault();
     editingReelId = null;
 
-    // Reset inputs
+    if (adminTitleInput) adminTitleInput.value = 'Special Screening from Yash ❤️';
+    if (adminMsgInput) {
+      adminMsgInput.value = '';
+      adminMsgInput.focus();
+    }
+    updateLiveGlassPreview();
+    setMediaMode('video');
+    stagedCustomVideoBlob = null;
+    if (dropzoneMainText) dropzoneMainText.textContent = 'Tap or drop video file';
+    if (dropzoneSubText) dropzoneSubText.textContent = 'MP4, WebM, MOV supported';
+
+    if (adminFormModeText) adminFormModeText.textContent = 'Create Next Reel';
+    if (adminCancelEditBtn) adminCancelEditBtn.classList.add('hidden');
+    if (adminSaveBtnText) adminSaveBtnText.textContent = 'Add Reel to Feed';
+
+    renderAdminReelsManager();
+
+    const glassCard = document.querySelector('.admin-glass-card');
+    if (glassCard) glassCard.scrollTo({ top: 0, behavior: 'smooth' });
+
+    const editorCard = document.getElementById('adminEditorCard');
+    if (editorCard) {
+      editorCard.classList.remove('pulse-editor');
+      void editorCard.offsetWidth;
+      editorCard.classList.add('pulse-editor');
+    }
+
+    showToast('✨ Ready to create new reel! Fill fields and tap Add Reel.', 'info');
+  }
+
+  function cancelEditing(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    editingReelId = null;
+
     if (adminTitleInput) adminTitleInput.value = 'Special Screening from Yash ❤️';
     if (adminMsgInput) adminMsgInput.value = '';
     updateLiveGlassPreview();
@@ -1350,7 +1389,6 @@
     if (dropzoneMainText) dropzoneMainText.textContent = 'Tap or drop video file';
     if (dropzoneSubText) dropzoneSubText.textContent = 'MP4, WebM, MOV supported';
 
-    // Reset buttons & pills
     if (adminFormModeText) adminFormModeText.textContent = 'Create Next Reel';
     if (adminCancelEditBtn) adminCancelEditBtn.classList.add('hidden');
     if (adminSaveBtnText) adminSaveBtnText.textContent = 'Add Reel to Feed';
@@ -1364,91 +1402,129 @@
   }
 
   // --- Save New Reel or Update Existing Reel ---
-  if (adminSaveReelBtn) {
-    adminSaveReelBtn.addEventListener('click', async () => {
-      const text = (adminMsgInput ? adminMsgInput.value.trim() : '') || DEFAULT_ADMIN_TEXT;
-      const title = (adminTitleInput ? adminTitleInput.value.trim() : '') || 'Special Screening from Yash ❤️';
-      let reels = getReels();
+  async function saveReelAction(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const text = (adminMsgInput ? adminMsgInput.value.trim() : '') || DEFAULT_ADMIN_TEXT;
+    const title = (adminTitleInput ? adminTitleInput.value.trim() : '') || 'Special Screening from Yash ❤️';
+    let reels = getReels();
 
-      if (editingReelId) {
-        // --- UPDATE EXISTING REEL IN PLACE ---
-        const targetIndex = reels.findIndex(r => r.id === editingReelId);
-        if (targetIndex !== -1) {
-          const reel = reels[targetIndex];
-          reel.title = title;
-          reel.text = text;
-          reel.mediaType = selectedMediaType;
-
-          if (selectedMediaType === 'video') {
-            if (stagedCustomVideoBlob) {
-              const videoKey = 'reel_video_' + reel.id;
-              showToast('Saving updated video file...', 'info');
-              await saveVideoBlob(stagedCustomVideoBlob, videoKey);
-              reel.videoType = 'blob';
-              reel.videoKey = videoKey;
-              stagedCustomVideoBlob = null;
-            } else if (!reel.videoKey) {
-              reel.videoType = 'preset';
-              reel.presetSrc = activePresetSrc;
-            }
-          } else {
-            // Text-only: Clean up video blobs if any
-            if (reel.videoKey) {
-              await deleteVideoBlob(reel.videoKey);
-              reel.videoKey = '';
-            }
-            reel.videoType = 'none';
-            reel.presetSrc = '';
-          }
-
-          saveReels(reels);
-          cancelEditing();
-          await renderGloryFeed();
-          showToast(`✓ Reel #${targetIndex + 1} updated successfully!`, 'success');
-        }
-      } else {
-        // --- ADD NEXT REEL (UP TO N REELS) ---
-        const newId = 'reel_' + Date.now();
-        let videoType = 'preset';
-        let videoKey = '';
-        let presetSrc = activePresetSrc;
+    if (editingReelId) {
+      // --- UPDATE EXISTING REEL IN PLACE ---
+      const targetIndex = reels.findIndex(r => r.id === editingReelId);
+      if (targetIndex !== -1) {
+        const reel = reels[targetIndex];
+        reel.title = title;
+        reel.text = text;
+        reel.mediaType = selectedMediaType;
 
         if (selectedMediaType === 'video') {
           if (stagedCustomVideoBlob) {
-            videoType = 'blob';
-            videoKey = 'reel_video_' + newId;
-            showToast('Saving uploaded video to vault...', 'info');
+            const videoKey = 'reel_video_' + reel.id;
+            showToast('Saving updated video file...', 'info');
             await saveVideoBlob(stagedCustomVideoBlob, videoKey);
+            reel.videoType = 'blob';
+            reel.videoKey = videoKey;
             stagedCustomVideoBlob = null;
+          } else if (!reel.videoKey) {
+            reel.videoType = 'preset';
+            reel.presetSrc = activePresetSrc;
           }
         } else {
-          videoType = 'none';
-          presetSrc = '';
+          // Text-only
+          if (reel.videoKey) {
+            await deleteVideoBlob(reel.videoKey);
+            reel.videoKey = '';
+          }
+          reel.videoType = 'none';
+          reel.presetSrc = '';
         }
 
-        const newReel = {
-          id: newId,
-          title: title,
-          text: text,
-          mediaType: selectedMediaType,
-          videoType: videoType,
-          videoKey: videoKey,
-          presetSrc: presetSrc,
-          createdAt: Date.now()
-        };
-
-        reels.push(newReel);
         saveReels(reels);
+        cancelEditing();
+        updateAdminMetrics();
+        renderGloryFeed().catch(() => {});
+        showToast(`✓ Reel #${targetIndex + 1} updated successfully!`, 'success');
 
-        // Reset text field for the next reel
-        if (adminMsgInput) adminMsgInput.value = '';
-        updateLiveGlassPreview();
-        renderAdminReelsManager();
-        await renderGloryFeed();
-
-        showToast(`✓ Reel #${reels.length} added to Glory's feed!`, 'success');
+        if (supabaseClient) {
+          supabaseClient.from('reels').upsert({
+            id: reel.id,
+            title: reel.title,
+            text: reel.text,
+            media_type: reel.mediaType,
+            video_type: reel.videoType,
+            video_key: reel.videoKey || '',
+            preset_src: reel.presetSrc || '',
+            created_at: new Date(reel.createdAt || Date.now()).toISOString()
+          }).then(() => {}).catch(err => console.warn('Supabase reel sync error:', err));
+        }
       }
-    });
+    } else {
+      // --- ADD NEXT REEL (UP TO N REELS) ---
+      const newId = 'reel_' + Date.now();
+      let videoType = 'preset';
+      let videoKey = '';
+      let presetSrc = activePresetSrc;
+
+      if (selectedMediaType === 'video') {
+        if (stagedCustomVideoBlob) {
+          videoType = 'blob';
+          videoKey = 'reel_video_' + newId;
+          showToast('Saving uploaded video to vault...', 'info');
+          await saveVideoBlob(stagedCustomVideoBlob, videoKey);
+          stagedCustomVideoBlob = null;
+        }
+      } else {
+        videoType = 'none';
+        presetSrc = '';
+      }
+
+      const newReel = {
+        id: newId,
+        title: title,
+        text: text,
+        mediaType: selectedMediaType,
+        videoType: videoType,
+        videoKey: videoKey,
+        presetSrc: presetSrc,
+        createdAt: Date.now()
+      };
+
+      reels.push(newReel);
+      saveReels(reels);
+
+      if (adminMsgInput) adminMsgInput.value = '';
+      updateLiveGlassPreview();
+      renderAdminReelsManager();
+      updateAdminMetrics();
+      renderGloryFeed().catch(() => {});
+
+      showToast(`✓ Reel #${reels.length} added to Glory's feed!`, 'success');
+
+      if (supabaseClient) {
+        supabaseClient.from('reels').upsert({
+          id: newReel.id,
+          title: newReel.title,
+          text: newReel.text,
+          media_type: newReel.mediaType,
+          video_type: newReel.videoType,
+          video_key: newReel.videoKey || '',
+          preset_src: newReel.presetSrc || '',
+          created_at: new Date(newReel.createdAt).toISOString()
+        }).then(() => {}).catch(err => console.warn('Supabase reel insert error:', err));
+      }
+    }
+  }
+
+  // Global window bindings for inline HTML handlers
+  window.__startEditingReel = startEditingReel;
+  window.__addNewReel = addNewReel;
+  window.__cancelEditing = cancelEditing;
+  window.__saveReel = saveReelAction;
+  window.__deleteReel = deleteReel;
+
+  if (adminSaveReelBtn) {
+    adminSaveReelBtn.onclick = saveReelAction;
+    adminSaveReelBtn.addEventListener('click', saveReelAction);
   }
 
   // --- Delete Reel ---
