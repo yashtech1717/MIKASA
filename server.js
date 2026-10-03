@@ -39,11 +39,11 @@ const server = http.createServer((req, res) => {
 
   let cleanUrl = req.url.split('?')[0];
 
-  // API Route: Public cloud config for Supabase (injected from Render Environment Variables)
+  // API Route: Public cloud config for Supabase (injected from Render Environment Variables with defaults)
   if (cleanUrl === '/api/config') {
-    const rawUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+    const rawUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://vkzzdnepmwhsnzmeozxr.supabase.co').trim();
     const supabaseUrl = rawUrl.replace(/^['"]|['"]$/g, '').replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
-    const supabaseAnonKey = (process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim().replace(/^['"]|['"]$/g, '');
+    const supabaseAnonKey = (process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_27dH6hm79SXgqxz8wF25nQ_1IbAhX6s').trim().replace(/^['"]|['"]$/g, '');
 
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',

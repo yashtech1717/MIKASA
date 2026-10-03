@@ -333,30 +333,30 @@
 
             <!-- Video Controls Wrapper (Hidden when Text-Only selected) -->
             <div class="video-media-pane" id="videoMediaPane">
-              <!-- Dropzone / File Picker (Supports 1 or Multiple Videos) -->
-              <label class="admin-dropzone" id="adminDropzone">
-                <input type="file" id="adminVideoFile" accept="video/*,.mp4,.mov,.webm,.m4v,.mkv" class="hidden-file-input" multiple>
+              <!-- Dropzone / File Picker (Custom Video Upload) -->
+              <label class="admin-dropzone" id="adminDropzone" for="adminVideoFile">
+                <input type="file" id="adminVideoFile" accept="video/*,.mp4,.mov,.webm,.m4v,.mkv" class="hidden-file-input">
                 <svg class="dropzone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                   <polyline points="17 8 12 3 7 8"></polyline>
                   <line x1="12" y1="3" x2="12" y2="15"></line>
                 </svg>
                 <div class="dropzone-text">
-                  <span class="dropzone-main" id="dropzoneMainText">Tap or drop 1 or multiple video files</span>
-                  <span class="dropzone-sub" id="dropzoneSubText">MP4, WebM, MOV supported · Select multiple videos to batch create reels</span>
+                  <span class="dropzone-main" id="dropzoneMainText">Tap or drop video file</span>
+                  <span class="dropzone-sub" id="dropzoneSubText">MP4, WebM, MOV supported · Uploads directly to Supabase Cloud</span>
                 </div>
               </label>
 
               <!-- Preset Quick Picks -->
               <div class="preset-row">
-                <button type="button" class="preset-btn active" data-src="assets/love_story_1.mp4">Love Story 1</button>
+                <button type="button" class="preset-btn" data-src="assets/love_story_1.mp4">Love Story 1</button>
                 <button type="button" class="preset-btn" data-src="assets/love_story_2.mp4">Love Story 2</button>
               </div>
 
               <!-- Video Live Mini Preview -->
               <div class="admin-preview-container">
-                <video id="adminPreviewVideo" class="admin-preview-video" muted playsinline loop autoplay src="assets/love_story_1.mp4"></video>
-                <span class="preview-badge" id="previewBadgeStatus">Preview: Love Story 1</span>
+                <video id="adminPreviewVideo" class="admin-preview-video" muted playsinline loop autoplay src=""></video>
+                <span class="preview-badge" id="previewBadgeStatus">No Video Selected</span>
               </div>
             </div>
 

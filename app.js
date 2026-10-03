@@ -405,7 +405,7 @@
   let editingReelId = null;
   let selectedMediaType = 'video'; // 'video' | 'textonly'
   let stagedCustomVideoBlob = null;
-  let activePresetSrc = 'assets/love_story_1.mp4';
+  let activePresetSrc = '';
 
   function escapeHtml(str) {
     if (!str) return '';
@@ -421,15 +421,19 @@
   function getReels() {
     try {
       const raw = localStorage.getItem('cinema_admin_reels');
-      if (raw) {
+      if (raw !== null) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch (e) {
       console.warn('Error reading reels:', e);
     }
-    // Out-of-the-box default lineup with 2 reels ready for Instagram-style 1-by-1 scrolling
-    return [
+    // Only return initial lineup on first ever launch before user edits or deletes anything
+    if (localStorage.getItem('cinema_reels_initialized')) {
+      return [];
+    }
+    localStorage.setItem('cinema_reels_initialized', 'true');
+    const initialLineup = [
       {
         id: 'reel_default_1',
         title: 'Special Screening from Yash ❤️',
@@ -451,6 +455,8 @@
         createdAt: Date.now()
       }
     ];
+    saveReels(initialLineup);
+    return initialLineup;
   }
 
   function saveReels(reels) {
@@ -959,16 +965,19 @@
     return null;
   }
 
+  const DEFAULT_SUPABASE_URL = 'https://vkzzdnepmwhsnzmeozxr.supabase.co';
+  const DEFAULT_SUPABASE_KEY = 'sb_publishable_27dH6hm79SXgqxz8wF25nQ_1IbAhX6s';
+
   function initSupabase(overrideBadge) {
-    let savedUrl = (localStorage.getItem('supabase_project_url') || '').trim();
-    let savedKey = (localStorage.getItem('supabase_anon_key') || '').trim();
+    let savedUrl = (localStorage.getItem('supabase_project_url') || DEFAULT_SUPABASE_URL).trim();
+    let savedKey = (localStorage.getItem('supabase_anon_key') || DEFAULT_SUPABASE_KEY).trim();
 
     // Clean any accidentally pasted quotes, /rest/v1 or trailing slashes
     savedUrl = savedUrl.replace(/^['"]|['"]$/g, '').replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
     savedKey = savedKey.replace(/^['"]|['"]$/g, '');
 
-    if (supabaseUrlInput) supabaseUrlInput.value = savedUrl;
-    if (supabaseKeyInput) supabaseKeyInput.value = savedKey;
+    if (supabaseUrlInput && !supabaseUrlInput.value) supabaseUrlInput.value = savedUrl;
+    if (supabaseKeyInput && !supabaseKeyInput.value) supabaseKeyInput.value = savedKey;
 
     const createClientFn = getSupabaseFactory();
 
@@ -1429,6 +1438,12 @@
     updateLiveGlassPreview();
     setMediaMode('video');
     stagedCustomVideoBlob = null;
+    activePresetSrc = '';
+    presetBtns.forEach(b => b.classList.remove('active'));
+    if (adminDropzone) adminDropzone.classList.remove('has-staged-video');
+    if (adminVideoFile) adminVideoFile.value = '';
+    if (adminPreviewVideo) adminPreviewVideo.src = '';
+    if (previewBadgeStatus) previewBadgeStatus.textContent = 'No Video Selected';
     if (dropzoneMainText) dropzoneMainText.textContent = 'Tap or drop video file';
     if (dropzoneSubText) dropzoneSubText.textContent = 'MP4, WebM, MOV supported';
 
@@ -1448,7 +1463,7 @@
       editorCard.classList.add('pulse-editor');
     }
 
-    showToast('✨ Ready to create new reel! Fill fields and tap Add Reel.', 'info');
+    showToast('✨ Ready to create new reel! Select a video & tap Add Reel.', 'info');
   }
 
   function cancelEditing(e) {
@@ -1460,6 +1475,12 @@
     updateLiveGlassPreview();
     setMediaMode('video');
     stagedCustomVideoBlob = null;
+    activePresetSrc = '';
+    presetBtns.forEach(b => b.classList.remove('active'));
+    if (adminDropzone) adminDropzone.classList.remove('has-staged-video');
+    if (adminVideoFile) adminVideoFile.value = '';
+    if (adminPreviewVideo) adminPreviewVideo.src = '';
+    if (previewBadgeStatus) previewBadgeStatus.textContent = 'No Video Selected';
     if (dropzoneMainText) dropzoneMainText.textContent = 'Tap or drop video file';
     if (dropzoneSubText) dropzoneSubText.textContent = 'MP4, WebM, MOV supported';
 
@@ -1482,166 +1503,184 @@
     const title = (adminTitleInput ? adminTitleInput.value.trim() : '') || 'Special Screening from Yash ❤️';
     let reels = getReels();
 
-    if (editingReelId) {
-      // --- UPDATE EXISTING REEL IN PLACE ---
-      const targetIndex = reels.findIndex(r => r.id === editingReelId);
-      if (targetIndex !== -1) {
-        const reel = reels[targetIndex];
-        reel.title = title;
-        reel.text = text;
-        reel.mediaType = selectedMediaType;
+    const saveBtn = adminSaveReelBtn;
+    const origBtnText = editingReelId ? 'Save Changes' : 'Add Reel to Feed';
+
+    try {
+      if (editingReelId) {
+        // --- UPDATE EXISTING REEL IN PLACE ---
+        const targetIndex = reels.findIndex(r => r.id === editingReelId);
+        if (targetIndex !== -1) {
+          const reel = reels[targetIndex];
+          reel.title = title;
+          reel.text = text;
+          reel.mediaType = selectedMediaType;
+
+          if (selectedMediaType === 'video') {
+            if (stagedCustomVideoBlob) {
+              const videoFile = stagedCustomVideoBlob;
+              stagedCustomVideoBlob = null;
+              if (adminDropzone) adminDropzone.classList.remove('has-staged-video');
+              if (adminSaveBtnText) adminSaveBtnText.textContent = '⏳ Uploading Video to Cloud...';
+              if (saveBtn) saveBtn.disabled = true;
+              showToast('☁️ Uploading video to Supabase Cloud...', 'info');
+
+              const cloudUrl = await uploadVideoToSupabaseStorage(videoFile, reel.id);
+              if (cloudUrl) {
+                reel.videoUrl = cloudUrl;
+                reel.videoType = 'url';
+                reel.presetSrc = '';
+                showToast('✓ Video uploaded to Supabase Storage!', 'success');
+              } else {
+                const videoKey = 'reel_video_' + reel.id;
+                await saveVideoBlob(videoFile, videoKey);
+                reel.videoType = 'blob';
+                reel.videoKey = videoKey;
+                reel.presetSrc = '';
+              }
+            } else if (activePresetSrc) {
+              reel.videoType = 'preset';
+              reel.presetSrc = activePresetSrc;
+              reel.videoUrl = '';
+              reel.videoKey = '';
+            } else if (!reel.videoKey && !reel.videoUrl && !reel.presetSrc) {
+              showToast('Please select a video file or pick a preset for your reel!', 'error');
+              return;
+            }
+          } else {
+            // Text-only
+            if (reel.videoKey) {
+              await deleteVideoBlob(reel.videoKey);
+              reel.videoKey = '';
+            }
+            reel.videoType = 'none';
+            reel.presetSrc = '';
+            reel.videoUrl = '';
+          }
+
+          saveReels(reels);
+          cancelEditing();
+          updateAdminMetrics();
+          renderGloryFeed().catch(() => {});
+          showToast(`✓ Reel #${targetIndex + 1} updated successfully!`, 'success');
+
+          if (supabaseClient) {
+            try {
+              const { error: syncErr } = await supabaseClient.from('reels').upsert({
+                id: reel.id,
+                title: reel.title,
+                text: reel.text,
+                media_type: reel.mediaType,
+                video_type: reel.videoType,
+                video_key: reel.videoKey || '',
+                video_url: reel.videoUrl || '',
+                preset_src: reel.presetSrc || '',
+                created_at: new Date(reel.createdAt || Date.now()).toISOString()
+              }, { onConflict: 'id' });
+
+              if (syncErr) {
+                console.warn('Supabase reel sync warning:', syncErr);
+                showToast('Supabase notice: ' + syncErr.message, 'error');
+              } else {
+                showToast('✓ Reel & video synced to Supabase!', 'success');
+              }
+            } catch (err) {
+              console.warn('Supabase reel sync error:', err);
+            }
+          }
+        }
+      } else {
+        // --- ADD NEXT REEL (UP TO N REELS) ---
+        const newId = 'reel_' + Date.now();
+        let videoType = 'preset';
+        let videoKey = '';
+        let videoUrl = '';
+        let presetSrc = '';
 
         if (selectedMediaType === 'video') {
           if (stagedCustomVideoBlob) {
             const videoFile = stagedCustomVideoBlob;
             stagedCustomVideoBlob = null;
+            if (adminDropzone) adminDropzone.classList.remove('has-staged-video');
+            if (adminSaveBtnText) adminSaveBtnText.textContent = '⏳ Uploading Video to Cloud...';
+            if (saveBtn) saveBtn.disabled = true;
             showToast('☁️ Uploading video to Supabase Cloud...', 'info');
 
-            const cloudUrl = await uploadVideoToSupabaseStorage(videoFile, reel.id);
+            const cloudUrl = await uploadVideoToSupabaseStorage(videoFile, newId);
             if (cloudUrl) {
-              reel.videoUrl = cloudUrl;
-              reel.videoType = 'url';
-              reel.presetSrc = '';
+              videoUrl = cloudUrl;
+              videoType = 'url';
+              presetSrc = '';
               showToast('✓ Video uploaded to Supabase Storage!', 'success');
             } else {
-              const videoKey = 'reel_video_' + reel.id;
+              videoType = 'blob';
+              videoKey = 'reel_video_' + newId;
+              presetSrc = '';
               await saveVideoBlob(videoFile, videoKey);
-              reel.videoType = 'blob';
-              reel.videoKey = videoKey;
-              reel.presetSrc = '';
             }
-          } else if (!reel.videoKey && !reel.videoUrl) {
-            reel.videoType = 'preset';
-            reel.presetSrc = activePresetSrc || DEFAULT_ADMIN_VIDEO;
+          } else if (activePresetSrc) {
+            videoType = 'preset';
+            presetSrc = activePresetSrc;
+          } else {
+            showToast('Please select a video file or pick a preset for your reel!', 'error');
+            return;
           }
         } else {
-          // Text-only
-          if (reel.videoKey) {
-            await deleteVideoBlob(reel.videoKey);
-            reel.videoKey = '';
-          }
-          reel.videoType = 'none';
-          reel.presetSrc = '';
-          reel.videoUrl = '';
+          videoType = 'none';
+          presetSrc = '';
         }
 
+        const newReel = {
+          id: newId,
+          title: title,
+          text: text,
+          mediaType: selectedMediaType,
+          videoType: videoType,
+          videoKey: videoKey,
+          videoUrl: videoUrl,
+          presetSrc: presetSrc,
+          createdAt: Date.now()
+        };
+
+        reels.push(newReel);
         saveReels(reels);
+
+        if (adminMsgInput) adminMsgInput.value = '';
         cancelEditing();
+        renderAdminReelsManager();
         updateAdminMetrics();
         renderGloryFeed().catch(() => {});
-        showToast(`✓ Reel #${targetIndex + 1} updated successfully!`, 'success');
+
+        showToast(`✓ Reel #${reels.length} added to Glory's feed!`, 'success');
 
         if (supabaseClient) {
           try {
-            const { error: syncErr } = await supabaseClient.from('reels').upsert({
-              id: reel.id,
-              title: reel.title,
-              text: reel.text,
-              media_type: reel.mediaType,
-              video_type: reel.videoType,
-              video_key: reel.videoKey || '',
-              video_url: reel.videoUrl || '',
-              preset_src: reel.presetSrc || '',
-              created_at: new Date(reel.createdAt || Date.now()).toISOString()
+            const { error: insertErr } = await supabaseClient.from('reels').upsert({
+              id: newReel.id,
+              title: newReel.title,
+              text: newReel.text,
+              media_type: newReel.mediaType,
+              video_type: newReel.videoType,
+              video_key: newReel.videoKey || '',
+              video_url: newReel.videoUrl || '',
+              preset_src: newReel.presetSrc || '',
+              created_at: new Date(newReel.createdAt).toISOString()
             }, { onConflict: 'id' });
 
-            if (syncErr) {
-              console.warn('Supabase reel sync warning:', syncErr);
-              showToast('Supabase notice: ' + syncErr.message, 'error');
+            if (insertErr) {
+              console.warn('Supabase reel insert notice:', insertErr);
+              showToast('Supabase notice: ' + insertErr.message, 'error');
             } else {
               showToast('✓ Reel & video synced to Supabase!', 'success');
             }
           } catch (err) {
-            console.warn('Supabase reel sync error:', err);
+            console.warn('Supabase reel insert error:', err);
           }
         }
       }
-    } else {
-      // --- ADD NEXT REEL (UP TO N REELS) ---
-      const newId = 'reel_' + Date.now();
-      let videoType = 'preset';
-      let videoKey = '';
-      let videoUrl = '';
-      let presetSrc = activePresetSrc;
-
-      if (selectedMediaType === 'video') {
-        if (stagedCustomVideoBlob) {
-          const videoFile = stagedCustomVideoBlob;
-          stagedCustomVideoBlob = null;
-          if (adminDropzone) adminDropzone.classList.remove('has-staged-video');
-          showToast('☁️ Uploading video to Supabase Cloud...', 'info');
-
-          const cloudUrl = await uploadVideoToSupabaseStorage(videoFile, newId);
-          if (cloudUrl) {
-            videoUrl = cloudUrl;
-            videoType = 'url';
-            presetSrc = '';
-            showToast('✓ Video uploaded to Supabase Storage!', 'success');
-          } else {
-            videoType = 'blob';
-            videoKey = 'reel_video_' + newId;
-            presetSrc = '';
-            await saveVideoBlob(videoFile, videoKey);
-          }
-        } else if (activePresetSrc) {
-          videoType = 'preset';
-          presetSrc = activePresetSrc;
-        } else {
-          showToast('Please select a video file or pick a preset for your reel!', 'error');
-          return;
-        }
-      } else {
-        videoType = 'none';
-        presetSrc = '';
-      }
-
-      const newReel = {
-        id: newId,
-        title: title,
-        text: text,
-        mediaType: selectedMediaType,
-        videoType: videoType,
-        videoKey: videoKey,
-        videoUrl: videoUrl,
-        presetSrc: presetSrc,
-        createdAt: Date.now()
-      };
-
-      reels.push(newReel);
-      saveReels(reels);
-
-      if (adminMsgInput) adminMsgInput.value = '';
-      updateLiveGlassPreview();
-      renderAdminReelsManager();
-      updateAdminMetrics();
-      renderGloryFeed().catch(() => {});
-
-      showToast(`✓ Reel #${reels.length} added to Glory's feed!`, 'success');
-
-      if (supabaseClient) {
-        try {
-          const { error: insertErr } = await supabaseClient.from('reels').upsert({
-            id: newReel.id,
-            title: newReel.title,
-            text: newReel.text,
-            media_type: newReel.mediaType,
-            video_type: newReel.videoType,
-            video_key: newReel.videoKey || '',
-            video_url: newReel.videoUrl || '',
-            preset_src: newReel.presetSrc || '',
-            created_at: new Date(newReel.createdAt).toISOString()
-          }, { onConflict: 'id' });
-
-          if (insertErr) {
-            console.warn('Supabase reel insert notice:', insertErr);
-            showToast('Supabase notice: ' + insertErr.message, 'error');
-          } else {
-            showToast('✓ Reel & video synced to Supabase!', 'success');
-          }
-        } catch (err) {
-          console.warn('Supabase reel insert error:', err);
-        }
-      }
+    } finally {
+      if (saveBtn) saveBtn.disabled = false;
+      if (adminSaveBtnText) adminSaveBtnText.textContent = origBtnText;
     }
   }
 
@@ -1661,23 +1700,24 @@
   async function deleteReel(reelId) {
     let reels = getReels();
     const target = reels.find(r => r.id === reelId);
-    if (target && target.videoKey) {
-      await deleteVideoBlob(target.videoKey);
+    if (target) {
+      if (target.videoKey) {
+        await deleteVideoBlob(target.videoKey);
+      }
+      if (target.videoUrl && target.videoUrl.includes('reels-videos') && supabaseClient) {
+        try {
+          const parts = target.videoUrl.split('reels-videos/');
+          if (parts.length > 1) {
+            await supabaseClient.storage.from('reels-videos').remove([parts[1]]);
+          }
+        } catch (err) {
+          console.warn('Storage delete notice:', err);
+        }
+      }
     }
 
     reels = reels.filter(r => r.id !== reelId);
-    if (reels.length === 0) {
-      reels = [{
-        id: 'reel_default',
-        title: 'Special Screening from Yash ❤️',
-        text: DEFAULT_ADMIN_TEXT,
-        mediaType: 'video',
-        videoType: 'preset',
-        videoKey: '',
-        presetSrc: DEFAULT_ADMIN_VIDEO,
-        createdAt: Date.now()
-      }];
-    }
+    localStorage.setItem('cinema_reels_initialized', 'true');
 
     if (editingReelId === reelId) {
       cancelEditing();
@@ -1686,7 +1726,7 @@
     saveReels(reels);
     renderAdminReelsManager();
     await renderGloryFeed();
-    showToast('Reel removed from feed.', 'info');
+    showToast('Reel permanently deleted.', 'info');
 
     // Also permanently delete from Supabase so it never returns on sync!
     if (supabaseClient) {
@@ -1714,12 +1754,25 @@
 
     reelsWrapper.innerHTML = '';
 
+    if (reels.length === 0) {
+      reelsWrapper.innerHTML = `
+        <div class="reel-slide active" style="display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:30px; height:100vh;">
+          <div style="font-size:3rem; margin-bottom:16px;">✨</div>
+          <h2 style="font-family:'Cinzel', serif; font-size:1.4rem; color:#fff; letter-spacing:0.06em; margin-bottom:10px;">Private Cinema Lounge</h2>
+          <p style="font-size:0.9rem; color:rgba(255,255,255,0.7); max-width:320px; line-height:1.5;">Yash is preparing the next private screening for you, Glory. Check back soon ❤️</p>
+        </div>
+      `;
+      if (feedCounter) feedCounter.textContent = '0 / 0';
+      if (feedNavControls) feedNavControls.style.display = 'none';
+      return;
+    }
+
     for (let i = 0; i < reels.length; i++) {
       const reel = reels[i];
       const index = i + 1;
       const isVideo = reel.mediaType === 'video';
 
-      let videoSrc = DEFAULT_ADMIN_VIDEO;
+      let videoSrc = '';
       if (reel.videoUrl) {
         videoSrc = reel.videoUrl;
       } else if (isVideo && reel.videoType === 'blob' && reel.videoKey) {
@@ -1745,7 +1798,7 @@
             <div class="glass-text feed-glass-text static-glass-text" data-text="${escapeHtml(reel.text)}">${escapeHtml(reel.text)}</div>
           </div>
 
-          ${isVideo ? `
+          ${(isVideo && videoSrc) ? `
           <!-- Center Video Box: Same size as login, 16:9, centered, NOT zoomed to phone screen -->
           <div class="reel-video-frame-box">
             <video class="reel-video" playsinline webkit-playsinline x5-playsinline loop preload="${index === 1 ? 'auto' : 'metadata'}" muted src="${videoSrc}"></video>
@@ -2123,10 +2176,33 @@
     if (reelsWrapper) reelsWrapper.scrollTop = 0;
   }
 
-  function showGloryDashboard() {
+  async function showGloryDashboard() {
     if (gloryIntroScreen) gloryIntroScreen.classList.add('hidden');
     if (gloryFeed) gloryFeed.classList.remove('hidden');
     if (adminModal) adminModal.classList.add('hidden');
+
+    if (supabaseClient) {
+      try {
+        const { data: cloudReels, error } = await supabaseClient.from('reels').select('*');
+        if (!error && Array.isArray(cloudReels) && cloudReels.length > 0) {
+          const mapped = cloudReels.map(r => ({
+            id: r.id,
+            title: r.title,
+            text: r.text,
+            mediaType: r.media_type,
+            videoType: r.video_type,
+            videoKey: r.video_key,
+            presetSrc: r.preset_src,
+            videoUrl: r.video_url,
+            createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now()
+          }));
+          saveReels(mapped);
+        }
+      } catch (err) {
+        console.warn('Glory cloud sync:', err);
+      }
+    }
+
     initReelsFeed();
   }
 
