@@ -9,10 +9,10 @@ create table if not exists public.reels (
   title text not null default 'Special Screening from Yash ❤️',
   text text not null default 'hi glory last msg form yash',
   media_type text not null default 'video',
-  video_type text not null default 'preset',
+  video_type text not null default 'url',
   video_key text default '',
   video_url text default '',
-  preset_src text default 'assets/love_story_1.mp4',
+  preset_src text default '',
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 

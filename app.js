@@ -428,35 +428,7 @@
     } catch (e) {
       console.warn('Error reading reels:', e);
     }
-    // Only return initial lineup on first ever launch before user edits or deletes anything
-    if (localStorage.getItem('cinema_reels_initialized')) {
-      return [];
-    }
-    localStorage.setItem('cinema_reels_initialized', 'true');
-    const initialLineup = [
-      {
-        id: 'reel_default_1',
-        title: 'Special Screening from Yash ❤️',
-        text: localStorage.getItem('cinema_admin_uploaded_text') || DEFAULT_ADMIN_TEXT,
-        mediaType: 'video',
-        videoType: 'preset',
-        videoKey: '',
-        presetSrc: 'assets/love_story_1.mp4',
-        createdAt: Date.now() - 120000
-      },
-      {
-        id: 'reel_default_2',
-        title: 'Our Next Chapter ✦ Yash',
-        text: 'always with you glory ✨',
-        mediaType: 'video',
-        videoType: 'preset',
-        videoKey: '',
-        presetSrc: 'assets/love_story_2.mp4',
-        createdAt: Date.now()
-      }
-    ];
-    saveReels(initialLineup);
-    return initialLineup;
+    return [];
   }
 
   function saveReels(reels) {
@@ -1428,7 +1400,7 @@
 
   async function syncAllCloudData(e) {
     if (e && e.preventDefault) e.preventDefault();
-    const isQuiet = (e && e.quiet === true);
+    const isQuiet = Boolean((e && (e.quiet === true || e === true)) || (arguments.length > 1 && arguments[1] === true));
 
     const syncBtn = document.getElementById('testSupabaseSyncBtn');
     const syncBtnText = document.getElementById('syncSupabaseBtnText') || syncBtn;
@@ -1581,13 +1553,13 @@
   }
 
   // --- Orphaned Storage Cleanup Utility ---
-  async function cleanupOrphanedVideos() {
+  async function cleanupOrphanedVideos(executeDelete = false) {
     if (!supabaseClient || !supabaseClient.storage) {
       showToast('Supabase client not initialized.', 'error');
       return { success: false, error: 'No client' };
     }
 
-    showToast('🔍 Scanning Supabase Storage for orphaned files...', 'info');
+    showToast(executeDelete ? '🧹 Cleaning up orphaned videos in Supabase Storage...' : '🔍 Scanning for orphaned videos in Supabase Storage (Audit Mode)...', 'info');
 
     try {
       const { data: dbReels, error: dbErr } = await supabaseClient.from('reels').select('video_url');
@@ -1633,16 +1605,23 @@
         }
       }
 
+      console.log('Orphaned video scan results:', { totalFound: orphaned.length, files: orphaned, executeDelete });
+
       if (orphaned.length === 0) {
         showToast('✓ Storage is spotless! No orphaned videos found.', 'success');
-        return { success: true, count: 0 };
+        return { success: true, count: 0, files: [] };
+      }
+
+      if (!executeDelete) {
+        showToast(`🔍 Audit: Found ${orphaned.length} orphaned file(s) in Storage. Run window.__cleanupOrphanedVideos(true) to delete.`, 'info');
+        return { success: true, count: orphaned.length, files: orphaned, dryRun: true };
       }
 
       const { error: remErr } = await supabaseClient.storage.from('reels-videos').remove(orphaned);
       if (remErr) throw remErr;
 
       showToast(`✓ Removed ${orphaned.length} orphaned video file(s) from Supabase Storage.`, 'success');
-      return { success: true, count: orphaned.length, files: orphaned };
+      return { success: true, count: orphaned.length, files: orphaned, dryRun: false };
     } catch (err) {
       console.warn('Orphan cleanup notice:', err);
       showToast('Cleanup notice: ' + (err.message || err), 'error');
@@ -2014,8 +1993,9 @@
       }
     }
 
-    // 2. Delete video from Supabase Storage SECOND
-    if (target.videoUrl && target.videoUrl.includes('reels-videos') && supabaseClient) {
+    // 2. Delete video from Supabase Storage SECOND (only if not shared with another reel)
+    const isShared = reels.some(r => r.id !== reelId && r.videoUrl === target.videoUrl);
+    if (!isShared && target.videoUrl && target.videoUrl.includes('reels-videos') && supabaseClient) {
       try {
         const parts = target.videoUrl.split('reels-videos/');
         if (parts.length > 1) {
@@ -2082,15 +2062,33 @@
       const isVideo = reel.mediaType === 'video';
 
       let videoSrc = '';
-      if (reel.videoUrl) {
-        videoSrc = reel.videoUrl;
-      } else if (isVideo && reel.videoType === 'blob' && reel.videoKey) {
-        const cachedUrl = await getObjectUrlForBlob(reel.videoKey);
-        if (cachedUrl) {
-          videoSrc = cachedUrl;
+      let isVideoSourceMissing = false;
+
+      if (isVideo) {
+        if (reel.videoType === 'url') {
+          // Cloud-uploaded video: MUST use reel.videoUrl only! Never fall back to presets.
+          if (reel.videoUrl && typeof reel.videoUrl === 'string' && reel.videoUrl.trim().startsWith('http')) {
+            videoSrc = reel.videoUrl.trim();
+          } else {
+            isVideoSourceMissing = true;
+          }
+        } else if (reel.videoType === 'preset') {
+          // Preset demo video explicitly chosen
+          if (reel.presetSrc && typeof reel.presetSrc === 'string' && reel.presetSrc.trim()) {
+            videoSrc = reel.presetSrc.trim();
+          } else {
+            isVideoSourceMissing = true;
+          }
+        } else {
+          // Unspecified: If valid http url exists use it, otherwise mark missing
+          if (reel.videoUrl && typeof reel.videoUrl === 'string' && reel.videoUrl.trim().startsWith('http')) {
+            videoSrc = reel.videoUrl.trim();
+          } else if (reel.presetSrc && reel.videoType === 'preset') {
+            videoSrc = reel.presetSrc.trim();
+          } else {
+            isVideoSourceMissing = true;
+          }
         }
-      } else if (reel.presetSrc) {
-        videoSrc = reel.presetSrc;
       }
 
       const section = document.createElement('section');
@@ -2107,10 +2105,10 @@
             <div class="glass-text feed-glass-text static-glass-text" data-text="${escapeHtml(reel.text)}">${escapeHtml(reel.text)}</div>
           </div>
 
-          ${(isVideo && videoSrc) ? `
+          ${isVideo ? `
           <!-- Center Video Box: Same size as login, 16:9, centered, NOT zoomed to phone screen -->
           <div class="reel-video-frame-box">
-            <video class="reel-video" playsinline webkit-playsinline x5-playsinline loop preload="${index === 1 ? 'auto' : (index === 2 ? 'metadata' : 'none')}" muted src="${videoSrc}"></video>
+            <video class="reel-video" playsinline webkit-playsinline x5-playsinline loop preload="${index === 1 ? 'auto' : (index === 2 ? 'metadata' : 'none')}" muted ${videoSrc ? `src="${videoSrc}"` : ''}></video>
             <div class="video-frame-reflection"></div>
             
             <!-- Video Buffering Spinner (Neon / Cinematic) -->
@@ -2120,10 +2118,10 @@
             </div>
 
             <!-- Video Playback Error Box with Retry -->
-            <div class="reel-video-error-box" style="display:none;">
+            <div class="reel-video-error-box" style="${isVideoSourceMissing ? 'display:flex;' : 'display:none;'}">
               <span class="reel-error-icon">⚠️</span>
-              <span class="reel-error-msg">Video could not be played</span>
-              <button type="button" class="reel-retry-btn">
+              <span class="reel-error-msg">${isVideoSourceMissing ? 'Cloud video source missing' : 'Video could not be played'}</span>
+              <button type="button" class="reel-retry-btn" data-video-src="${escapeHtml(videoSrc)}">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5">
                   <polyline points="23 4 23 10 17 10"></polyline>
                   <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
@@ -2133,7 +2131,7 @@
             </div>
 
             <!-- Click to Reveal and Play Overlay -->
-            <div class="reel-reveal-overlay">
+            <div class="reel-reveal-overlay" style="${isVideoSourceMissing ? 'display:none;' : ''}">
               <button type="button" class="reel-reveal-btn">
                 <svg class="reveal-play-icon" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
                   <polygon points="5 3 19 12 5 21 5 3"></polygon>
@@ -2555,21 +2553,7 @@
 
     if (supabaseClient) {
       try {
-        const { data: cloudReels, error } = await supabaseClient.from('reels').select('*');
-        if (!error && Array.isArray(cloudReels) && cloudReels.length > 0) {
-          const mapped = cloudReels.map(r => ({
-            id: r.id,
-            title: r.title,
-            text: r.text,
-            mediaType: r.media_type,
-            videoType: r.video_type,
-            videoKey: r.video_key,
-            presetSrc: r.preset_src,
-            videoUrl: r.video_url,
-            createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now()
-          }));
-          saveReels(mapped);
-        }
+        await syncAllCloudData(null, true);
       } catch (err) {
         console.warn('Glory cloud sync:', err);
       }
@@ -2805,5 +2789,17 @@
   const paramRole = urlParams.get('role');
   const savedRole = paramRole || localStorage.getItem('cinema_session_role');
   renderView(savedRole);
+
+  // Proactively run cloud sync on startup so fresh sessions/devices load cloud reels immediately
+  if (supabaseClient) {
+    syncAllCloudData(null, true).then(() => {
+      const activeRole = localStorage.getItem('cinema_session_role') || (new URLSearchParams(window.location.search)).get('role');
+      if (activeRole === 'glory') {
+        renderGloryFeed();
+      } else if (activeRole === 'admin') {
+        renderAdminReelsManager();
+      }
+    }).catch(err => console.warn('Initial cloud sync notice:', err));
+  }
 
 })();
