@@ -41,8 +41,9 @@ const server = http.createServer((req, res) => {
 
   // API Route: Public cloud config for Supabase (injected from Render Environment Variables)
   if (cleanUrl === '/api/config') {
-    const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
-    const supabaseAnonKey = (process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
+    const rawUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+    const supabaseUrl = rawUrl.replace(/^['"]|['"]$/g, '').replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
+    const supabaseAnonKey = (process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim().replace(/^['"]|['"]$/g, '');
 
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',

@@ -998,8 +998,8 @@
     let savedUrl = (localStorage.getItem('supabase_project_url') || '').trim();
     let savedKey = (localStorage.getItem('supabase_anon_key') || '').trim();
 
-    // Clean any accidentally pasted quotes or trailing slashes
-    savedUrl = savedUrl.replace(/^['"]|['"]$/g, '').replace(/\/+$/, '');
+    // Clean any accidentally pasted quotes, /rest/v1 or trailing slashes
+    savedUrl = savedUrl.replace(/^['"]|['"]$/g, '').replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
     savedKey = savedKey.replace(/^['"]|['"]$/g, '');
 
     if (supabaseUrlInput) supabaseUrlInput.value = savedUrl;
@@ -1203,8 +1203,8 @@
     let url = (supabaseUrlInput ? supabaseUrlInput.value.trim() : '');
     let key = (supabaseKeyInput ? supabaseKeyInput.value.trim() : '');
 
-    // Clean inputs: remove quotes, remove trailing slashes
-    url = url.replace(/^['"]|['"]$/g, '').replace(/\/+$/, '').trim();
+    // Clean inputs: remove quotes, /rest/v1, remove trailing slashes
+    url = url.replace(/^['"]|['"]$/g, '').replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '').trim();
     key = key.replace(/^['"]|['"]$/g, '').trim();
 
     if (!url || !key) {
