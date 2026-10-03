@@ -1075,7 +1075,23 @@
             } catch (err) {
               return { data: null, error: err };
             }
-          }
+          },
+          delete: () => ({
+            eq: async (col, val) => {
+              try {
+                const res = await fetch(`${savedUrl}/rest/v1/${tableName}?${encodeURIComponent(col)}=eq.${encodeURIComponent(val)}`, {
+                  method: 'DELETE',
+                  headers: {
+                    'apikey': savedKey,
+                    'Authorization': `Bearer ${savedKey}`
+                  }
+                });
+                return { data: null, error: res.ok ? null : new Error(`HTTP ${res.status}`) };
+              } catch (err) {
+                return { data: null, error: err };
+              }
+            }
+          })
         }),
         storage: {
           from: (bucketName) => ({
@@ -1176,7 +1192,12 @@
           });
 
         if (error) {
-          console.warn('Supabase storage upload notice:', error);
+          console.error('Supabase storage upload error:', error);
+          if (error.message && (error.message.includes('not found') || error.message.includes('NoSuchBucket') || error.statusCode === '404')) {
+            showToast('⚠️ Storage bucket "reels-videos" not found in Supabase! Please create bucket.', 'error');
+          } else {
+            showToast('Storage notice: ' + (error.message || 'Upload failed'), 'error');
+          }
           return null;
         }
 
@@ -1690,6 +1711,15 @@
     renderAdminReelsManager();
     await renderGloryFeed();
     showToast('Reel removed from feed.', 'info');
+
+    // Also permanently delete from Supabase so it never returns on sync!
+    if (supabaseClient) {
+      try {
+        await supabaseClient.from('reels').delete().eq('id', reelId);
+      } catch (err) {
+        console.warn('Supabase reel delete notice:', err);
+      }
+    }
   }
 
   // --- Glory Full-Screen Multi-Reels Renderer (Up to N Reels) ---
