@@ -496,6 +496,7 @@
   presetBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       stagedCustomVideoBlob = null;
+      if (adminDropzone) adminDropzone.classList.remove('has-staged-video');
       presetBtns.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       activePresetSrc = btn.getAttribute('data-src');
@@ -506,10 +507,10 @@
         adminPreviewVideo.play().catch(() => {});
       }
       if (previewBadgeStatus) {
-        previewBadgeStatus.textContent = 'Preview: ' + btn.textContent.trim();
+        previewBadgeStatus.textContent = 'Preset: ' + btn.textContent.trim();
       }
       if (dropzoneMainText) {
-        dropzoneMainText.textContent = 'Tap or drop 1 or multiple video files';
+        dropzoneMainText.textContent = 'Tap or drop video file';
       }
       showToast(`Selected preset: ${btn.textContent.trim()}`, 'info');
     });
@@ -518,53 +519,14 @@
   // --- Video File Upload (Drag & Drop or Multi-File Picker) ---
   async function handleVideoFiles(fileList) {
     if (!fileList || fileList.length === 0) return;
-    const files = Array.from(fileList).filter(f => f.type.startsWith('video/'));
+    const files = Array.from(fileList).filter(f => {
+      const type = (f.type || '').toLowerCase();
+      const name = (f.name || '').toLowerCase();
+      return type.startsWith('video/') || /\.(mp4|webm|mov|m4v|mkv|avi|3gp|hevc)$/.test(name);
+    });
 
     if (files.length === 0) {
       showToast('Please select valid video files (MP4, WebM, MOV).', 'error');
-      return;
-    }
-
-    // Multiple videos selected at once -> BATCH CREATE SEPARATE REELS!
-    if (files.length > 1) {
-      showToast(`⚡ Batch processing ${files.length} videos into reels...`, 'info');
-      let reels = getReels();
-      let addedCount = 0;
-
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const newId = 'reel_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-        const videoKey = 'reel_video_' + newId;
-
-        try {
-          await saveVideoBlob(file, videoKey);
-          const cleanTitle = file.name
-            .replace(/\.[^/.]+$/, '')
-            .replace(/[-_]/g, ' ')
-            .replace(/\b\w/g, c => c.toUpperCase());
-
-          const customText = (adminMsgInput ? adminMsgInput.value.trim() : '') || 'hi glory last msg form yash';
-
-          reels.push({
-            id: newId,
-            title: cleanTitle || `Special Screening #${reels.length + 1}`,
-            text: customText,
-            mediaType: 'video',
-            videoType: 'blob',
-            videoKey: videoKey,
-            presetSrc: '',
-            createdAt: Date.now() + i
-          });
-          addedCount++;
-        } catch (err) {
-          console.error('Failed to save batch video:', file.name, err);
-        }
-      }
-
-      saveReels(reels);
-      renderAdminReelsManager();
-      await renderGloryFeed();
-      showToast(`✓ Batch added ${addedCount} reels! Glory feed now has ${reels.length} reels.`, 'success');
       return;
     }
 
@@ -572,6 +534,10 @@
     const file = files[0];
     showToast(`Loading video ${file.name}...`, 'info');
     stagedCustomVideoBlob = file;
+    activePresetSrc = '';
+    presetBtns.forEach(b => b.classList.remove('active'));
+
+    if (adminDropzone) adminDropzone.classList.add('has-staged-video');
 
     const previewUrl = URL.createObjectURL(file);
     if (adminPreviewVideo) {
@@ -580,9 +546,8 @@
       adminPreviewVideo.play().catch(() => {});
     }
 
-    presetBtns.forEach(b => b.classList.remove('active'));
-    if (dropzoneMainText) dropzoneMainText.textContent = '✓ Staged: ' + file.name;
-    if (dropzoneSubText) dropzoneSubText.textContent = `${(file.size / (1024 * 1024)).toFixed(1)} MB ready · Tap "${editingReelId ? 'Save Changes' : 'Add Reel to Feed'}" to apply`;
+    if (dropzoneMainText) dropzoneMainText.textContent = '✅ Staged: ' + file.name;
+    if (dropzoneSubText) dropzoneSubText.textContent = `${(file.size / (1024 * 1024)).toFixed(1)} MB ready · Tap "${editingReelId ? 'Save Changes' : 'Add Reel to Feed'}" to upload`;
     if (previewBadgeStatus) previewBadgeStatus.textContent = 'Custom: ' + file.name;
 
     showToast(`Video "${file.name}" staged! Tap Add Reel to save.`, 'success');
@@ -1536,16 +1501,18 @@
             if (cloudUrl) {
               reel.videoUrl = cloudUrl;
               reel.videoType = 'url';
+              reel.presetSrc = '';
               showToast('✓ Video uploaded to Supabase Storage!', 'success');
             } else {
               const videoKey = 'reel_video_' + reel.id;
               await saveVideoBlob(videoFile, videoKey);
               reel.videoType = 'blob';
               reel.videoKey = videoKey;
+              reel.presetSrc = '';
             }
           } else if (!reel.videoKey && !reel.videoUrl) {
             reel.videoType = 'preset';
-            reel.presetSrc = activePresetSrc;
+            reel.presetSrc = activePresetSrc || DEFAULT_ADMIN_VIDEO;
           }
         } else {
           // Text-only
@@ -1601,18 +1568,27 @@
         if (stagedCustomVideoBlob) {
           const videoFile = stagedCustomVideoBlob;
           stagedCustomVideoBlob = null;
+          if (adminDropzone) adminDropzone.classList.remove('has-staged-video');
           showToast('☁️ Uploading video to Supabase Cloud...', 'info');
 
           const cloudUrl = await uploadVideoToSupabaseStorage(videoFile, newId);
           if (cloudUrl) {
             videoUrl = cloudUrl;
             videoType = 'url';
+            presetSrc = '';
             showToast('✓ Video uploaded to Supabase Storage!', 'success');
           } else {
             videoType = 'blob';
             videoKey = 'reel_video_' + newId;
+            presetSrc = '';
             await saveVideoBlob(videoFile, videoKey);
           }
+        } else if (activePresetSrc) {
+          videoType = 'preset';
+          presetSrc = activePresetSrc;
+        } else {
+          showToast('Please select a video file or pick a preset for your reel!', 'error');
+          return;
         }
       } else {
         videoType = 'none';

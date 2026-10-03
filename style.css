@@ -1034,6 +1034,12 @@ html, body {
   background: rgba(255, 51, 102, 0.08);
 }
 
+.admin-dropzone.has-staged-video {
+  border-color: #10b981 !important;
+  background: rgba(16, 185, 129, 0.12) !important;
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.25);
+}
+
 .hidden-file-input {
   display: none;
 }
