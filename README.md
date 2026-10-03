@@ -32,11 +32,18 @@ Built for deployment on **Render** with Git integration via **`YASHTECH1717/MIKA
 - When Glory replies from her feed, the message records the exact reel number, title, and quote preview so Yash knows exactly what reel inspired her response.
 
 ### 5. ☁️ Supabase Cloud Database & Storage
-- Dual-tier storage: Instant zero-latency IndexedDB local caching paired with asynchronous cloud persistence (`reels`, `glory_replies`, `glory_logins`, and `reels-videos` storage bucket).
+- **Dedicated Storage Bucket**: Consistently uses `reels-videos` for all media.
+- **Supported Formats**: Strictly browser-compatible **MP4 (H.264 video + AAC audio)** and **WebM**. Incompatible legacy formats (MKV, AVI, 3GP, HEVC) are rejected upfront with decodability validation.
+- **Size Validation**: Maximum 50MB per video with instant pre-upload size & metadata checks.
+- **Atomic Upload & Database Consistency**: Video is uploaded first; if database insertion fails, the uploaded storage file is immediately deleted (rolled back). Old storage videos are only cleaned up after a replacement update succeeds.
+- **Orphan Cleanup Utility**: Admin tool `window.__cleanupOrphanedVideos()` scans the storage bucket and purges unreferenced video files.
+- **Realtime Synchronization**: Postgres changes on `reels` and `glory_replies` tables are subscribed via Supabase Realtime for instant multi-device live sync.
 - Run `supabase_schema.sql` in your Supabase SQL Editor for instantaneous table and storage bucket creation.
 
 ### 6. 🚀 Production Zero-Lag Streaming Server (`server.js`)
-- Zero-dependency Node.js HTTP server supporting HTTP Range requests (`206 Partial Content`) for buffer-free video seeking on mobile Safari and Chrome.
+- Zero-dependency Node.js HTTP server supporting RFC 7233 HTTP Range requests (`206 Partial Content`) and `HEAD` requests for buffer-free video scrubbing and instant seeking on iOS Safari, Android Chrome, and desktop browsers.
+- Intelligent preloading: Active reel uses `preload="auto"`, adjacent reels use `preload="metadata"`, and distant reels use `preload="none"`.
+- Resilient playback with neon glass buffering spinner (`.reel-video-loader`), error boundary with instant retry, and mobile autoplay fallback.
 
 ---
 
@@ -66,3 +73,4 @@ git push -u origin main
 1. Create a project at [supabase.com](https://supabase.com).
 2. Go to the **SQL Editor** and paste the contents of `supabase_schema.sql`, then click **Run**.
 3. In the Yash Admin Studio under the **☁️ Supabase Cloud & Deploy** tab, enter your Project URL and Anon API Key, then click **Save & Connect Supabase**.
+

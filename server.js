@@ -75,46 +75,111 @@ const server = http.createServer((req, res) => {
     const ext = path.extname(filePath).toLowerCase();
     const contentType = MIME_TYPES[ext] || 'application/octet-stream';
     const totalSize = stats.size;
+    const isVideo = ext === '.mp4' || ext === '.webm' || ext === '.mov';
 
-    // HTTP Byte-Range Request for smooth, zero-buffer video streaming
-    const range = req.headers.range;
-    if (range && (ext === '.mp4' || ext === '.webm' || ext === '.mov')) {
-      const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+    // Parse HTTP Byte-Range requests
+    const rangeHeader = req.headers.range;
 
-      if (start >= totalSize || end >= totalSize) {
+    if (rangeHeader && isVideo) {
+      const range = parseRange(rangeHeader, totalSize);
+
+      if (!range || range.invalid) {
         res.writeHead(416, {
-          'Content-Range': `bytes */${totalSize}`
+          'Content-Range': `bytes */${totalSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Type': contentType
         });
         res.end();
         return;
       }
 
-      const chunkSize = end - start + 1;
-      const fileStream = fs.createReadStream(filePath, { start, end });
-
       res.writeHead(206, {
-        'Content-Range': `bytes ${start}-${end}/${totalSize}`,
+        'Content-Range': `bytes ${range.start}-${range.end}/${totalSize}`,
         'Accept-Ranges': 'bytes',
-        'Content-Length': chunkSize,
+        'Content-Length': range.chunkSize,
         'Content-Type': contentType,
         'Cache-Control': 'public, max-age=31536000, immutable'
       });
 
+      if (req.method === 'HEAD') {
+        res.end();
+        return;
+      }
+
+      const fileStream = fs.createReadStream(filePath, { start: range.start, end: range.end });
+      fileStream.on('error', () => {
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      });
       fileStream.pipe(res);
     } else {
       res.writeHead(200, {
         'Content-Length': totalSize,
         'Content-Type': contentType,
-        'Accept-Ranges': 'bytes',
+        'Accept-Ranges': isVideo ? 'bytes' : 'none',
         'Cache-Control': ext === '.html' ? 'no-cache, must-revalidate' : 'public, max-age=3600'
       });
 
-      fs.createReadStream(filePath).pipe(res);
+      if (req.method === 'HEAD') {
+        res.end();
+        return;
+      }
+
+      const fileStream = fs.createReadStream(filePath);
+      fileStream.on('error', () => {
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      });
+      fileStream.pipe(res);
     }
   });
 });
+
+/**
+ * Robust RFC 7233 range header parser supporting:
+ * - bytes=start-end
+ * - bytes=start-
+ * - bytes=-suffixLength
+ * Clamps end to totalSize - 1, validates start < totalSize.
+ */
+function parseRange(header, totalSize) {
+  if (!header || !header.startsWith('bytes=')) return null;
+  const spec = header.slice(6).trim();
+  const part = spec.split(',')[0].trim();
+  const dashIndex = part.indexOf('-');
+  if (dashIndex === -1) return { invalid: true };
+
+  const startStr = part.slice(0, dashIndex).trim();
+  const endStr = part.slice(dashIndex + 1).trim();
+
+  let start;
+  let end;
+
+  if (startStr === '') {
+    // Suffix byte range: bytes=-500000
+    const suffix = parseInt(endStr, 10);
+    if (isNaN(suffix) || suffix <= 0) return { invalid: true };
+    start = Math.max(0, totalSize - suffix);
+    end = totalSize - 1;
+  } else {
+    start = parseInt(startStr, 10);
+    if (isNaN(start) || start < 0) return { invalid: true };
+
+    if (endStr === '') {
+      end = totalSize - 1;
+    } else {
+      end = parseInt(endStr, 10);
+      if (isNaN(end) || end < start) return { invalid: true };
+    }
+  }
+
+  if (start >= totalSize) {
+    return { invalid: true };
+  }
+
+  end = Math.min(end, totalSize - 1);
+  return { start, end, chunkSize: end - start + 1 };
+}
 
 server.listen(PORT, () => {
   console.log(`🎬 Cinematic Server running on port ${PORT}`);

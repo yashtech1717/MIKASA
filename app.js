@@ -498,65 +498,220 @@
     adminMsgInput.addEventListener('input', updateLiveGlassPreview);
   }
 
+  // --- Configurable Video Constraints ---
+  const MAX_VIDEO_SIZE_BYTES = 50 * 1024 * 1024; // 50MB limit
+  const ALLOWED_VIDEO_EXTENSIONS = ['.mp4', '.webm'];
+  const ALLOWED_VIDEO_MIMES = ['video/mp4', 'video/webm'];
+
+  // --- Upload State Machine ---
+  const UploadState = {
+    IDLE: 'idle',
+    VALIDATING: 'validating',
+    UPLOADING: 'uploading',
+    SAVING: 'saving',
+    ERROR: 'error'
+  };
+  let currentUploadState = UploadState.IDLE;
+
+  function setUploadState(state, statusText = '') {
+    currentUploadState = state;
+    if (!adminSaveReelBtn) return;
+
+    const isBusy = (state === UploadState.VALIDATING || state === UploadState.UPLOADING || state === UploadState.SAVING);
+    adminSaveReelBtn.disabled = isBusy;
+
+    if (adminSaveBtnText) {
+      if (isBusy) {
+        adminSaveBtnText.textContent = statusText || '⏳ Processing...';
+      } else {
+        adminSaveBtnText.textContent = editingReelId ? 'Save Changes' : 'Add Reel to Feed';
+      }
+    }
+  }
+
+  // --- Video File & Metadata Validation Helper ---
+  async function validateVideoFile(file) {
+    if (!file) return { valid: false, error: 'No video file selected.' };
+
+    if (file.size <= 0) {
+      return { valid: false, error: 'The selected video file is empty (0 bytes).' };
+    }
+
+    if (file.size > MAX_VIDEO_SIZE_BYTES) {
+      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      return {
+        valid: false,
+        error: `Video exceeds the 50MB limit (${sizeMb} MB). Please choose a smaller MP4 or WebM video.`
+      };
+    }
+
+    const name = (file.name || '').toLowerCase();
+    const ext = '.' + (name.split('.').pop() || '');
+    const mime = (file.type || '').toLowerCase();
+
+    // Reject non-browser containers immediately
+    const unsupported = ['.mkv', '.avi', '.3gp', '.wmv', '.flv', '.m4v', '.ts', '.hevc'];
+    if (unsupported.includes(ext)) {
+      return {
+        valid: false,
+        error: `Format "${ext.toUpperCase()}" is not supported for web browsers. Please provide an MP4 (H.264/AAC) or WebM file.`
+      };
+    }
+
+    if (!ALLOWED_VIDEO_EXTENSIONS.includes(ext) && !ALLOWED_VIDEO_MIMES.includes(mime)) {
+      return {
+        valid: false,
+        error: 'Please select an MP4 (H.264/AAC) or WebM video file.'
+      };
+    }
+
+    // In-browser decodability check
+    return new Promise((resolve) => {
+      const testVideo = document.createElement('video');
+      testVideo.preload = 'metadata';
+      testVideo.muted = true;
+      testVideo.playsInline = true;
+
+      const testUrl = URL.createObjectURL(file);
+      let resolved = false;
+
+      const cleanup = () => {
+        URL.revokeObjectURL(testUrl);
+        testVideo.removeAttribute('src');
+        testVideo.load();
+      };
+
+      const timer = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          resolve({ valid: true });
+        }
+      }, 5000);
+
+      testVideo.onloadedmetadata = () => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timer);
+          const duration = testVideo.duration;
+          const width = testVideo.videoWidth;
+          const height = testVideo.videoHeight;
+          cleanup();
+
+          if (isNaN(duration) || duration <= 0) {
+            resolve({ valid: false, error: 'Video file appears corrupted or has zero duration.' });
+          } else if (!width || !height) {
+            resolve({ valid: false, error: 'Could not detect valid video track dimensions.' });
+          } else {
+            resolve({ valid: true, duration, width, height });
+          }
+        }
+      };
+
+      testVideo.onerror = () => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timer);
+          cleanup();
+          resolve({
+            valid: false,
+            error: 'Your browser cannot decode this video codec. Please ensure it is standard H.264 video with AAC audio.'
+          });
+        }
+      };
+
+      testVideo.src = testUrl;
+    });
+  }
+
+  // --- Preview Management with Single URL Revocation ---
+  let currentPreviewObjectUrl = null;
+
+  function cleanupVideoPreview() {
+    if (currentPreviewObjectUrl) {
+      URL.revokeObjectURL(currentPreviewObjectUrl);
+      currentPreviewObjectUrl = null;
+    }
+    if (adminPreviewVideo) {
+      adminPreviewVideo.removeAttribute('src');
+      adminPreviewVideo.load();
+    }
+    if (previewBadgeStatus) previewBadgeStatus.textContent = 'No Video Selected';
+  }
+
+  function setVideoPreview(fileOrUrl, label = '') {
+    cleanupVideoPreview();
+    if (!fileOrUrl) return;
+
+    if (typeof fileOrUrl === 'string') {
+      if (adminPreviewVideo) {
+        adminPreviewVideo.src = fileOrUrl;
+        adminPreviewVideo.load();
+        adminPreviewVideo.play().catch(() => {});
+      }
+      if (previewBadgeStatus) previewBadgeStatus.textContent = label || 'Preset Video';
+    } else {
+      currentPreviewObjectUrl = URL.createObjectURL(fileOrUrl);
+      if (adminPreviewVideo) {
+        adminPreviewVideo.src = currentPreviewObjectUrl;
+        adminPreviewVideo.load();
+        adminPreviewVideo.play().catch(() => {});
+      }
+      if (previewBadgeStatus) previewBadgeStatus.textContent = label || ('Custom: ' + fileOrUrl.name);
+    }
+  }
+
   // --- Preset Pickers ---
   presetBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       stagedCustomVideoBlob = null;
       if (adminDropzone) adminDropzone.classList.remove('has-staged-video');
+      if (adminVideoFile) adminVideoFile.value = '';
       presetBtns.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       activePresetSrc = btn.getAttribute('data-src');
 
-      if (adminPreviewVideo) {
-        adminPreviewVideo.src = activePresetSrc;
-        adminPreviewVideo.load();
-        adminPreviewVideo.play().catch(() => {});
-      }
-      if (previewBadgeStatus) {
-        previewBadgeStatus.textContent = 'Preset: ' + btn.textContent.trim();
-      }
-      if (dropzoneMainText) {
-        dropzoneMainText.textContent = 'Tap or drop video file';
-      }
+      setVideoPreview(activePresetSrc, 'Preset: ' + btn.textContent.trim());
+
+      if (dropzoneMainText) dropzoneMainText.textContent = 'Tap or drop video file';
+      if (dropzoneSubText) dropzoneSubText.textContent = 'MP4 (H.264/AAC), WebM supported · Max 50MB';
       showToast(`Selected preset: ${btn.textContent.trim()}`, 'info');
     });
   });
 
-  // --- Video File Upload (Drag & Drop or Multi-File Picker) ---
+  // --- Video File Upload (Drag & Drop or File Picker) ---
   async function handleVideoFiles(fileList) {
     if (!fileList || fileList.length === 0) return;
-    const files = Array.from(fileList).filter(f => {
-      const type = (f.type || '').toLowerCase();
-      const name = (f.name || '').toLowerCase();
-      return type.startsWith('video/') || /\.(mp4|webm|mov|m4v|mkv|avi|3gp|hevc)$/.test(name);
-    });
+    const file = fileList[0];
 
-    if (files.length === 0) {
-      showToast('Please select valid video files (MP4, WebM, MOV).', 'error');
+    showToast(`Checking video "${file.name}"...`, 'info');
+    if (dropzoneMainText) dropzoneMainText.textContent = '⏳ Validating: ' + file.name;
+
+    const validation = await validateVideoFile(file);
+    if (!validation.valid) {
+      stagedCustomVideoBlob = null;
+      cleanupVideoPreview();
+      if (adminVideoFile) adminVideoFile.value = '';
+      if (adminDropzone) adminDropzone.classList.remove('has-staged-video');
+      if (dropzoneMainText) dropzoneMainText.textContent = 'Tap or drop video file';
+      if (dropzoneSubText) dropzoneSubText.textContent = 'MP4 (H.264/AAC), WebM supported · Max 50MB';
+      showToast(validation.error || 'Video validation failed.', 'error');
       return;
     }
 
-    // Single video selected
-    const file = files[0];
-    showToast(`Loading video ${file.name}...`, 'info');
     stagedCustomVideoBlob = file;
     activePresetSrc = '';
     presetBtns.forEach(b => b.classList.remove('active'));
 
     if (adminDropzone) adminDropzone.classList.add('has-staged-video');
+    setVideoPreview(file, 'Custom: ' + file.name);
 
-    const previewUrl = URL.createObjectURL(file);
-    if (adminPreviewVideo) {
-      adminPreviewVideo.src = previewUrl;
-      adminPreviewVideo.load();
-      adminPreviewVideo.play().catch(() => {});
-    }
+    const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+    const durStr = validation.duration ? `${Math.round(validation.duration)}s` : '';
+    if (dropzoneMainText) dropzoneMainText.textContent = '✅ Ready: ' + file.name;
+    if (dropzoneSubText) dropzoneSubText.textContent = `${sizeMb} MB ${durStr ? '· ' + durStr : ''} · Tap "${editingReelId ? 'Save Changes' : 'Add Reel to Feed'}" to upload`;
 
-    if (dropzoneMainText) dropzoneMainText.textContent = '✅ Staged: ' + file.name;
-    if (dropzoneSubText) dropzoneSubText.textContent = `${(file.size / (1024 * 1024)).toFixed(1)} MB ready · Tap "${editingReelId ? 'Save Changes' : 'Add Reel to Feed'}" to upload`;
-    if (previewBadgeStatus) previewBadgeStatus.textContent = 'Custom: ' + file.name;
-
-    showToast(`Video "${file.name}" staged! Tap Add Reel to save.`, 'success');
+    showToast(`✓ Video "${file.name}" (${sizeMb} MB) verified! Ready to save.`, 'success');
   }
 
   if (adminVideoFile) {
@@ -998,75 +1153,81 @@
 
       // REST API fallback client if SDK script is blocked or delayed
       supabaseClient = {
-        from: (tableName) => ({
-          select: async (cols = '*') => {
-            try {
-              const res = await fetch(`${savedUrl}/rest/v1/${tableName}?select=${encodeURIComponent(cols)}`, {
-                headers: {
-                  'apikey': savedKey,
-                  'Authorization': `Bearer ${savedKey}`
+        from: (tableName) => {
+          const tableUrl = `${savedUrl}/rest/v1/${tableName}`;
+          const headers = {
+            'apikey': savedKey,
+            'Authorization': `Bearer ${savedKey}`
+          };
+          return {
+            select: (cols = '*') => {
+              let queryUrl = `${tableUrl}?select=${encodeURIComponent(cols)}`;
+              const builder = {
+                order: (col, { ascending = true } = {}) => {
+                  queryUrl += `&order=${encodeURIComponent(col)}.${ascending ? 'asc' : 'desc'}`;
+                  return builder;
+                },
+                then: (resolve, reject) => {
+                  return fetch(queryUrl, { headers })
+                    .then(res => {
+                      if (!res.ok) return res.text().then(t => { throw new Error(`HTTP ${res.status}: ${t}`); });
+                      return res.json();
+                    })
+                    .then(data => resolve({ data, error: null }))
+                    .catch(err => resolve({ data: null, error: err }));
                 }
-              });
-              if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-              const data = await res.json();
-              return { data, error: null };
-            } catch (err) {
-              return { data: null, error: err };
-            }
-          },
-          insert: async (rows) => {
-            try {
-              const res = await fetch(`${savedUrl}/rest/v1/${tableName}`, {
-                method: 'POST',
-                headers: {
-                  'apikey': savedKey,
-                  'Authorization': `Bearer ${savedKey}`,
-                  'Content-Type': 'application/json',
-                  'Prefer': 'return=minimal'
-                },
-                body: JSON.stringify(rows)
-              });
-              if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-              return { data: null, error: null };
-            } catch (err) {
-              return { data: null, error: err };
-            }
-          },
-          upsert: async (row) => {
-            try {
-              const res = await fetch(`${savedUrl}/rest/v1/${tableName}?on_conflict=id`, {
-                method: 'POST',
-                headers: {
-                  'apikey': savedKey,
-                  'Authorization': `Bearer ${savedKey}`,
-                  'Content-Type': 'application/json',
-                  'Prefer': 'resolution=merge-duplicates'
-                },
-                body: JSON.stringify(row)
-              });
-              if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-              return { data: null, error: null };
-            } catch (err) {
-              return { data: null, error: err };
-            }
-          },
-          delete: () => ({
-            eq: async (col, val) => {
+              };
+              return builder;
+            },
+            insert: async (rows) => {
               try {
-                const res = await fetch(`${savedUrl}/rest/v1/${tableName}?${encodeURIComponent(col)}=eq.${encodeURIComponent(val)}`, {
-                  method: 'DELETE',
+                const res = await fetch(tableUrl, {
+                  method: 'POST',
                   headers: {
-                    'apikey': savedKey,
-                    'Authorization': `Bearer ${savedKey}`
-                  }
+                    ...headers,
+                    'Content-Type': 'application/json',
+                    'Prefer': 'return=minimal'
+                  },
+                  body: JSON.stringify(rows)
                 });
-                return { data: null, error: res.ok ? null : new Error(`HTTP ${res.status}`) };
+                if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+                return { data: null, error: null };
               } catch (err) {
                 return { data: null, error: err };
               }
-            }
-          })
-        }),
+            },
+            upsert: async (row) => {
+              try {
+                const res = await fetch(`${tableUrl}?on_conflict=id`, {
+                  method: 'POST',
+                  headers: {
+                    ...headers,
+                    'Content-Type': 'application/json',
+                    'Prefer': 'resolution=merge-duplicates'
+                  },
+                  body: JSON.stringify(row)
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+                return { data: null, error: null };
+              } catch (err) {
+                return { data: null, error: err };
+              }
+            },
+            delete: () => ({
+              eq: async (col, val) => {
+                try {
+                  const res = await fetch(`${tableUrl}?${encodeURIComponent(col)}=eq.${encodeURIComponent(val)}`, {
+                    method: 'DELETE',
+                    headers
+                  });
+                  return { data: null, error: res.ok ? null : new Error(`HTTP ${res.status}`) };
+                } catch (err) {
+                  return { data: null, error: err };
+                }
+              }
+            })
+          };
+        },
         storage: {
           from: (bucketName) => ({
             upload: async (storagePath, fileBody, options = {}) => {
@@ -1089,7 +1250,41 @@
             },
             getPublicUrl: (storagePath) => ({
               data: { publicUrl: `${savedUrl}/storage/v1/object/public/${bucketName}/${storagePath}` }
-            })
+            }),
+            remove: async (paths = []) => {
+              try {
+                const res = await fetch(`${savedUrl}/storage/v1/object/${bucketName}`, {
+                  method: 'DELETE',
+                  headers: {
+                    'apikey': savedKey,
+                    'Authorization': `Bearer ${savedKey}`,
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({ prefixes: paths })
+                });
+                return { data: null, error: res.ok ? null : new Error(`HTTP ${res.status}`) };
+              } catch (err) {
+                return { data: null, error: err };
+              }
+            },
+            list: async (path = '', options = {}) => {
+              try {
+                const res = await fetch(`${savedUrl}/storage/v1/object/list/${bucketName}`, {
+                  method: 'POST',
+                  headers: {
+                    'apikey': savedKey,
+                    'Authorization': `Bearer ${savedKey}`,
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({ prefix: path, limit: options.limit || 100 })
+                });
+                if (!res.ok) throw new Error(`Storage list HTTP ${res.status}`);
+                const data = await res.json();
+                return { data, error: null };
+              } catch (err) {
+                return { data: null, error: err };
+              }
+            }
           })
         }
       };
@@ -1098,6 +1293,7 @@
         supabaseStatusBadge.textContent = overrideBadge || 'Cloud Connected (REST)';
         supabaseStatusBadge.style.color = '#10b981';
       }
+      setupSupabaseRealtime();
       updateAdminMetrics();
       return true;
     }
@@ -1150,42 +1346,40 @@
 
   // --- Upload Video to Supabase Storage Bucket ('reels-videos') ---
   async function uploadVideoToSupabaseStorage(file, reelId) {
-    if (!supabaseClient) return null;
-    try {
-      const ext = (file.name && file.name.includes('.')) ? file.name.split('.').pop() : 'mp4';
-      const cleanName = `reel_${reelId}_${Date.now()}.${ext}`;
-      const storagePath = `uploads/${cleanName}`;
+    if (!supabaseClient) initSupabase();
+    if (!supabaseClient) throw new Error('Supabase cloud is not connected.');
 
-      if (supabaseClient.storage && typeof supabaseClient.storage.from === 'function') {
-        const { data, error } = await supabaseClient
-          .storage
-          .from('reels-videos')
-          .upload(storagePath, file, {
-            contentType: file.type || 'video/mp4',
-            upsert: true
-          });
+    const ext = file.name && file.name.endsWith('.webm') ? 'webm' : 'mp4';
+    const cleanId = String(reelId).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const storagePath = `reels/${cleanId}/${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
 
-        if (error) {
-          console.error('Supabase storage upload error:', error);
-          if (error.message && (error.message.includes('not found') || error.message.includes('NoSuchBucket') || error.statusCode === '404')) {
-            showToast('⚠️ Storage bucket "reels-videos" not found in Supabase! Please create bucket.', 'error');
-          } else {
-            showToast('Storage notice: ' + (error.message || 'Upload failed'), 'error');
-          }
-          return null;
-        }
-
-        const { data: urlData } = supabaseClient
-          .storage
-          .from('reels-videos')
-          .getPublicUrl(storagePath);
-
-        return urlData ? urlData.publicUrl : null;
-      }
-    } catch (err) {
-      console.warn('Storage upload error:', err);
+    if (!supabaseClient.storage || typeof supabaseClient.storage.from !== 'function') {
+      throw new Error('Supabase Storage SDK is not available.');
     }
-    return null;
+
+    const { data, error } = await supabaseClient
+      .storage
+      .from('reels-videos')
+      .upload(storagePath, file, {
+        contentType: file.type || (ext === 'webm' ? 'video/webm' : 'video/mp4'),
+        upsert: true
+      });
+
+    if (error) {
+      console.error('Supabase storage upload error:', error);
+      throw new Error(error.message || 'Storage upload failed.');
+    }
+
+    const { data: urlData } = supabaseClient
+      .storage
+      .from('reels-videos')
+      .getPublicUrl(storagePath);
+
+    if (!urlData || !urlData.publicUrl) {
+      throw new Error('Could not generate public video URL.');
+    }
+
+    return { publicUrl: urlData.publicUrl, storagePath };
   }
 
   async function saveSupabaseConfig(e) {
@@ -1255,46 +1449,41 @@
     }
 
     try {
-      // 1. Sync Reels from cloud or push local
+      // 1. Sync Reels from cloud or empty state
       const { data: cloudReels, error: reelErr } = await supabaseClient
         .from('reels')
-        .select('*');
+        .select('*')
+        .order('created_at', { ascending: true });
 
-      if (!reelErr && cloudReels && cloudReels.length > 0) {
-        const mapped = cloudReels.map(r => ({
-          id: r.id,
-          title: r.title,
-          text: r.text,
-          mediaType: r.media_type,
-          videoType: r.video_type,
-          videoKey: r.video_key,
-          presetSrc: r.preset_src,
-          videoUrl: r.video_url,
-          createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now()
-        }));
-        saveReels(mapped);
-        renderAdminReelsManager();
-      } else {
-        const localReels = getReels();
-        for (const lr of localReels) {
-          await supabaseClient.from('reels').upsert({
-            id: lr.id,
-            title: lr.title,
-            text: lr.text,
-            media_type: lr.mediaType,
-            video_type: lr.videoType,
-            video_key: lr.videoKey || '',
-            preset_src: lr.presetSrc || '',
-            video_url: lr.videoUrl || '',
-            created_at: new Date(lr.createdAt || Date.now()).toISOString()
-          }, { onConflict: 'id' });
+      if (!reelErr && Array.isArray(cloudReels)) {
+        if (cloudReels.length > 0) {
+          const mapped = cloudReels.map(r => ({
+            id: r.id,
+            title: r.title,
+            text: r.text,
+            mediaType: r.media_type,
+            videoType: r.video_type,
+            videoKey: r.video_key,
+            presetSrc: r.preset_src,
+            videoUrl: r.video_url,
+            createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now()
+          }));
+          saveReels(mapped);
+          renderAdminReelsManager();
+          await renderGloryFeed();
+        } else {
+          // Cloud has zero reels (all reels deleted in cloud). Keep local in sync with cloud!
+          saveReels([]);
+          renderAdminReelsManager();
+          await renderGloryFeed();
         }
       }
 
       // 2. Sync Glory Replies
       const { data: cloudReplies, error: repErr } = await supabaseClient
         .from('glory_replies')
-        .select('*');
+        .select('*')
+        .order('created_at', { ascending: false });
 
       if (!repErr && cloudReplies) {
         if (cloudReplies.length > 0) {
@@ -1309,26 +1498,14 @@
           }));
           saveGloryReplies(mappedReplies);
           renderAdminReplies();
-        } else {
-          const localReplies = getGloryReplies();
-          for (const lrep of localReplies) {
-            await supabaseClient.from('glory_replies').upsert({
-              id: lrep.id,
-              reel_id: lrep.reelId,
-              reel_index: lrep.reelIndex,
-              reel_title: lrep.reelTitle,
-              reel_text: lrep.reelText,
-              reply_text: lrep.text,
-              created_at: new Date(lrep.createdAt || Date.now()).toISOString()
-            }, { onConflict: 'id' });
-          }
         }
       }
 
       // 3. Sync Glory Logins
       const { data: cloudLogins, error: loginErr } = await supabaseClient
         .from('glory_logins')
-        .select('*');
+        .select('*')
+        .order('logged_in_at', { ascending: false });
 
       if (!loginErr && cloudLogins && cloudLogins.length > 0) {
         const mappedLogins = cloudLogins.map(cl => ({
@@ -1342,6 +1519,7 @@
         renderGloryLogins();
       }
 
+      setupSupabaseRealtime();
       updateAdminMetrics();
       if (!isQuiet) {
         showToast('✓ Cloud Sync Complete! All data secured in Supabase.', 'success');
@@ -1362,12 +1540,116 @@
 
   if (saveSupabaseSettingsBtn) {
     saveSupabaseSettingsBtn.onclick = saveSupabaseConfig;
-    saveSupabaseSettingsBtn.addEventListener('click', saveSupabaseConfig);
   }
   if (testSupabaseSyncBtn) {
     testSupabaseSyncBtn.onclick = syncAllCloudData;
-    testSupabaseSyncBtn.addEventListener('click', syncAllCloudData);
   }
+
+  // --- Realtime Cloud Synchronization ---
+  let supabaseRealtimeReelsChannel = null;
+  let supabaseRealtimeRepliesChannel = null;
+
+  function setupSupabaseRealtime() {
+    if (!supabaseClient || typeof supabaseClient.channel !== 'function') return;
+    try {
+      if (supabaseRealtimeReelsChannel) {
+        supabaseRealtimeReelsChannel.unsubscribe();
+        supabaseRealtimeReelsChannel = null;
+      }
+      supabaseRealtimeReelsChannel = supabaseClient
+        .channel('public:reels')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'reels' }, async (payload) => {
+          console.log('⚡ Realtime reels event received:', payload.eventType);
+          await syncAllCloudData(null, true);
+        })
+        .subscribe();
+
+      if (supabaseRealtimeRepliesChannel) {
+        supabaseRealtimeRepliesChannel.unsubscribe();
+        supabaseRealtimeRepliesChannel = null;
+      }
+      supabaseRealtimeRepliesChannel = supabaseClient
+        .channel('public:glory_replies')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'glory_replies' }, async (payload) => {
+          console.log('⚡ Realtime glory reply received:', payload.new ? payload.new.id : '');
+          await syncAllCloudData(null, true);
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn('Supabase Realtime subscription notice:', err);
+    }
+  }
+
+  // --- Orphaned Storage Cleanup Utility ---
+  async function cleanupOrphanedVideos() {
+    if (!supabaseClient || !supabaseClient.storage) {
+      showToast('Supabase client not initialized.', 'error');
+      return { success: false, error: 'No client' };
+    }
+
+    showToast('🔍 Scanning Supabase Storage for orphaned files...', 'info');
+
+    try {
+      const { data: dbReels, error: dbErr } = await supabaseClient.from('reels').select('video_url');
+      if (dbErr) throw dbErr;
+
+      const activePaths = new Set();
+      (dbReels || []).forEach(r => {
+        if (r.video_url && r.video_url.includes('reels-videos/')) {
+          const parts = r.video_url.split('reels-videos/');
+          if (parts.length > 1) {
+            activePaths.add(decodeURIComponent(parts[1].split('?')[0]));
+          }
+        }
+      });
+
+      const orphaned = [];
+
+      // Scan uploads/
+      const { data: uploadFiles } = await supabaseClient.storage.from('reels-videos').list('uploads', { limit: 100 });
+      if (uploadFiles) {
+        uploadFiles.forEach(f => {
+          const p = `uploads/${f.name}`;
+          if (!activePaths.has(p)) orphaned.push(p);
+        });
+      }
+
+      // Scan reels/ folder
+      const { data: reelFolders } = await supabaseClient.storage.from('reels-videos').list('reels', { limit: 100 });
+      if (reelFolders) {
+        for (const item of reelFolders) {
+          if (!item.name.includes('.')) {
+            const { data: subFiles } = await supabaseClient.storage.from('reels-videos').list(`reels/${item.name}`, { limit: 100 });
+            if (subFiles) {
+              subFiles.forEach(sf => {
+                const subPath = `reels/${item.name}/${sf.name}`;
+                if (!activePaths.has(subPath)) orphaned.push(subPath);
+              });
+            }
+          } else {
+            const directPath = `reels/${item.name}`;
+            if (!activePaths.has(directPath)) orphaned.push(directPath);
+          }
+        }
+      }
+
+      if (orphaned.length === 0) {
+        showToast('✓ Storage is spotless! No orphaned videos found.', 'success');
+        return { success: true, count: 0 };
+      }
+
+      const { error: remErr } = await supabaseClient.storage.from('reels-videos').remove(orphaned);
+      if (remErr) throw remErr;
+
+      showToast(`✓ Removed ${orphaned.length} orphaned video file(s) from Supabase Storage.`, 'success');
+      return { success: true, count: orphaned.length, files: orphaned };
+    } catch (err) {
+      console.warn('Orphan cleanup notice:', err);
+      showToast('Cleanup notice: ' + (err.message || err), 'error');
+      return { success: false, error: err.message };
+    }
+  }
+  window.__cleanupOrphanedVideos = cleanupOrphanedVideos;
 
   // --- Start / Cancel Reel Editing ---
   function startEditingReel(reelId) {
@@ -1386,18 +1668,22 @@
     // Fill media format
     if (reel.mediaType === 'textonly') {
       setMediaMode('textonly');
+      cleanupVideoPreview();
     } else {
       setMediaMode('video');
       stagedCustomVideoBlob = null;
-      if (reel.presetSrc) {
+      if (reel.videoUrl) {
+        activePresetSrc = '';
+        presetBtns.forEach(b => b.classList.remove('active'));
+        setVideoPreview(reel.videoUrl, 'Cloud Video Active');
+      } else if (reel.presetSrc) {
         activePresetSrc = reel.presetSrc;
         presetBtns.forEach(btn => {
           btn.classList.toggle('active', btn.getAttribute('data-src') === reel.presetSrc);
         });
-        if (adminPreviewVideo) {
-          adminPreviewVideo.src = reel.presetSrc;
-          adminPreviewVideo.load();
-        }
+        setVideoPreview(reel.presetSrc, 'Preset: ' + reel.presetSrc);
+      } else {
+        cleanupVideoPreview();
       }
     }
 
@@ -1440,12 +1726,13 @@
     stagedCustomVideoBlob = null;
     activePresetSrc = '';
     presetBtns.forEach(b => b.classList.remove('active'));
+    cleanupVideoPreview();
+
     if (adminDropzone) adminDropzone.classList.remove('has-staged-video');
     if (adminVideoFile) adminVideoFile.value = '';
-    if (adminPreviewVideo) adminPreviewVideo.src = '';
     if (previewBadgeStatus) previewBadgeStatus.textContent = 'No Video Selected';
     if (dropzoneMainText) dropzoneMainText.textContent = 'Tap or drop video file';
-    if (dropzoneSubText) dropzoneSubText.textContent = 'MP4, WebM, MOV supported';
+    if (dropzoneSubText) dropzoneSubText.textContent = 'MP4 (H.264/AAC), WebM supported · Max 50MB';
 
     if (adminFormModeText) adminFormModeText.textContent = 'Create Next Reel';
     if (adminCancelEditBtn) adminCancelEditBtn.classList.add('hidden');
@@ -1477,12 +1764,13 @@
     stagedCustomVideoBlob = null;
     activePresetSrc = '';
     presetBtns.forEach(b => b.classList.remove('active'));
+    cleanupVideoPreview();
+
     if (adminDropzone) adminDropzone.classList.remove('has-staged-video');
     if (adminVideoFile) adminVideoFile.value = '';
-    if (adminPreviewVideo) adminPreviewVideo.src = '';
     if (previewBadgeStatus) previewBadgeStatus.textContent = 'No Video Selected';
     if (dropzoneMainText) dropzoneMainText.textContent = 'Tap or drop video file';
-    if (dropzoneSubText) dropzoneSubText.textContent = 'MP4, WebM, MOV supported';
+    if (dropzoneSubText) dropzoneSubText.textContent = 'MP4 (H.264/AAC), WebM supported · Max 50MB';
 
     if (adminFormModeText) adminFormModeText.textContent = 'Create Next Reel';
     if (adminCancelEditBtn) adminCancelEditBtn.classList.add('hidden');
@@ -1493,192 +1781,204 @@
   }
 
   if (adminCancelEditBtn) {
-    adminCancelEditBtn.addEventListener('click', cancelEditing);
+    adminCancelEditBtn.onclick = cancelEditing;
   }
 
-  // --- Save New Reel or Update Existing Reel ---
+  // --- Atomic Save New Reel or Update Existing Reel ---
   async function saveReelAction(e) {
     if (e && e.preventDefault) e.preventDefault();
-    const text = (adminMsgInput ? adminMsgInput.value.trim() : '') || DEFAULT_ADMIN_TEXT;
-    const title = (adminTitleInput ? adminTitleInput.value.trim() : '') || 'Special Screening from Yash ❤️';
-    let reels = getReels();
+
+    // Guard against duplicate concurrent execution
+    if (currentUploadState !== UploadState.IDLE) {
+      console.warn('Upload / Save in progress, ignoring duplicate trigger.');
+      return;
+    }
 
     const saveBtn = adminSaveReelBtn;
     const origBtnText = editingReelId ? 'Save Changes' : 'Add Reel to Feed';
 
+    const text = (adminMsgInput ? adminMsgInput.value.trim() : '') || DEFAULT_ADMIN_TEXT;
+    const title = (adminTitleInput ? adminTitleInput.value.trim() : '') || 'Special Screening from Yash ❤️';
+    let reels = getReels();
+    const isEditing = Boolean(editingReelId);
+    const existingReel = isEditing ? reels.find(r => r.id === editingReelId) : null;
+
+    // Check media selection validity
+    if (selectedMediaType === 'video') {
+      const hasStaged = Boolean(stagedCustomVideoBlob);
+      const hasPreset = Boolean(activePresetSrc);
+      const hasExistingCloud = Boolean(existingReel && existingReel.videoUrl);
+      const hasExistingPreset = Boolean(existingReel && existingReel.presetSrc);
+
+      if (!hasStaged && !hasPreset && !hasExistingCloud && !hasExistingPreset) {
+        showToast('Please select an MP4/WebM video or pick a preset for your reel!', 'error');
+        return;
+      }
+    }
+
+    if (saveBtn) saveBtn.disabled = true;
+
+    let targetReelId = isEditing ? editingReelId : ('reel_' + Date.now());
+    let finalVideoUrl = '';
+    let finalPresetSrc = '';
+    let finalVideoType = 'preset';
+    let newUploadedStoragePath = null;
+    let oldStoragePathToDelete = null;
+
     try {
-      if (editingReelId) {
-        // --- UPDATE EXISTING REEL IN PLACE ---
-        const targetIndex = reels.findIndex(r => r.id === editingReelId);
-        if (targetIndex !== -1) {
-          const reel = reels[targetIndex];
-          reel.title = title;
-          reel.text = text;
-          reel.mediaType = selectedMediaType;
-
-          if (selectedMediaType === 'video') {
-            if (stagedCustomVideoBlob) {
-              const videoFile = stagedCustomVideoBlob;
-              stagedCustomVideoBlob = null;
-              if (adminDropzone) adminDropzone.classList.remove('has-staged-video');
-              if (adminSaveBtnText) adminSaveBtnText.textContent = '⏳ Uploading Video to Cloud...';
-              if (saveBtn) saveBtn.disabled = true;
-              showToast('☁️ Uploading video to Supabase Cloud...', 'info');
-
-              const cloudUrl = await uploadVideoToSupabaseStorage(videoFile, reel.id);
-              if (cloudUrl) {
-                reel.videoUrl = cloudUrl;
-                reel.videoType = 'url';
-                reel.presetSrc = '';
-                showToast('✓ Video uploaded to Supabase Storage!', 'success');
-              } else {
-                const videoKey = 'reel_video_' + reel.id;
-                await saveVideoBlob(videoFile, videoKey);
-                reel.videoType = 'blob';
-                reel.videoKey = videoKey;
-                reel.presetSrc = '';
-              }
-            } else if (activePresetSrc) {
-              reel.videoType = 'preset';
-              reel.presetSrc = activePresetSrc;
-              reel.videoUrl = '';
-              reel.videoKey = '';
-            } else if (!reel.videoKey && !reel.videoUrl && !reel.presetSrc) {
-              showToast('Please select a video file or pick a preset for your reel!', 'error');
-              return;
-            }
-          } else {
-            // Text-only
-            if (reel.videoKey) {
-              await deleteVideoBlob(reel.videoKey);
-              reel.videoKey = '';
-            }
-            reel.videoType = 'none';
-            reel.presetSrc = '';
-            reel.videoUrl = '';
-          }
-
-          saveReels(reels);
-          cancelEditing();
-          updateAdminMetrics();
-          renderGloryFeed().catch(() => {});
-          showToast(`✓ Reel #${targetIndex + 1} updated successfully!`, 'success');
-
-          if (supabaseClient) {
-            try {
-              const { error: syncErr } = await supabaseClient.from('reels').upsert({
-                id: reel.id,
-                title: reel.title,
-                text: reel.text,
-                media_type: reel.mediaType,
-                video_type: reel.videoType,
-                video_key: reel.videoKey || '',
-                video_url: reel.videoUrl || '',
-                preset_src: reel.presetSrc || '',
-                created_at: new Date(reel.createdAt || Date.now()).toISOString()
-              }, { onConflict: 'id' });
-
-              if (syncErr) {
-                console.warn('Supabase reel sync warning:', syncErr);
-                showToast('Supabase notice: ' + syncErr.message, 'error');
-              } else {
-                showToast('✓ Reel & video synced to Supabase!', 'success');
-              }
-            } catch (err) {
-              console.warn('Supabase reel sync error:', err);
-            }
-          }
-        }
-      } else {
-        // --- ADD NEXT REEL (UP TO N REELS) ---
-        const newId = 'reel_' + Date.now();
-        let videoType = 'preset';
-        let videoKey = '';
-        let videoUrl = '';
-        let presetSrc = '';
-
-        if (selectedMediaType === 'video') {
-          if (stagedCustomVideoBlob) {
-            const videoFile = stagedCustomVideoBlob;
-            stagedCustomVideoBlob = null;
-            if (adminDropzone) adminDropzone.classList.remove('has-staged-video');
-            if (adminSaveBtnText) adminSaveBtnText.textContent = '⏳ Uploading Video to Cloud...';
-            if (saveBtn) saveBtn.disabled = true;
-            showToast('☁️ Uploading video to Supabase Cloud...', 'info');
-
-            const cloudUrl = await uploadVideoToSupabaseStorage(videoFile, newId);
-            if (cloudUrl) {
-              videoUrl = cloudUrl;
-              videoType = 'url';
-              presetSrc = '';
-              showToast('✓ Video uploaded to Supabase Storage!', 'success');
-            } else {
-              videoType = 'blob';
-              videoKey = 'reel_video_' + newId;
-              presetSrc = '';
-              await saveVideoBlob(videoFile, videoKey);
-            }
-          } else if (activePresetSrc) {
-            videoType = 'preset';
-            presetSrc = activePresetSrc;
-          } else {
-            showToast('Please select a video file or pick a preset for your reel!', 'error');
+      if (selectedMediaType === 'video') {
+        if (stagedCustomVideoBlob) {
+          // 1. Validate file before starting upload
+          currentUploadState = UploadState.VALIDATING;
+          if (adminSaveBtnText) adminSaveBtnText.textContent = '⏳ Validating Video...';
+          const validation = await validateVideoFile(stagedCustomVideoBlob);
+          if (!validation.valid) {
+            showToast(validation.error || 'Video file validation failed.', 'error');
+            currentUploadState = UploadState.IDLE;
+            if (saveBtn) saveBtn.disabled = false;
+            if (adminSaveBtnText) adminSaveBtnText.textContent = origBtnText;
             return;
           }
-        } else {
-          videoType = 'none';
-          presetSrc = '';
-        }
 
-        const newReel = {
-          id: newId,
-          title: title,
-          text: text,
-          mediaType: selectedMediaType,
-          videoType: videoType,
-          videoKey: videoKey,
-          videoUrl: videoUrl,
-          presetSrc: presetSrc,
-          createdAt: Date.now()
-        };
+          // 2. Upload to Supabase Storage
+          currentUploadState = UploadState.UPLOADING;
+          if (adminSaveBtnText) adminSaveBtnText.textContent = '☁️ Uploading to Storage...';
+          showToast('☁️ Uploading video to Supabase Storage...', 'info');
 
-        reels.push(newReel);
-        saveReels(reels);
+          const uploadResult = await uploadVideoToSupabaseStorage(stagedCustomVideoBlob, targetReelId);
+          if (!uploadResult || !uploadResult.publicUrl) {
+            showToast('❌ Video upload failed. Cannot publish reel without cloud video.', 'error');
+            currentUploadState = UploadState.IDLE;
+            if (saveBtn) saveBtn.disabled = false;
+            if (adminSaveBtnText) adminSaveBtnText.textContent = origBtnText;
+            return;
+          }
 
-        if (adminMsgInput) adminMsgInput.value = '';
-        cancelEditing();
-        renderAdminReelsManager();
-        updateAdminMetrics();
-        renderGloryFeed().catch(() => {});
+          newUploadedStoragePath = uploadResult.storagePath;
+          finalVideoUrl = uploadResult.publicUrl;
+          finalVideoType = 'url';
+          finalPresetSrc = '';
 
-        showToast(`✓ Reel #${reels.length} added to Glory's feed!`, 'success');
-
-        if (supabaseClient) {
-          try {
-            const { error: insertErr } = await supabaseClient.from('reels').upsert({
-              id: newReel.id,
-              title: newReel.title,
-              text: newReel.text,
-              media_type: newReel.mediaType,
-              video_type: newReel.videoType,
-              video_key: newReel.videoKey || '',
-              video_url: newReel.videoUrl || '',
-              preset_src: newReel.presetSrc || '',
-              created_at: new Date(newReel.createdAt).toISOString()
-            }, { onConflict: 'id' });
-
-            if (insertErr) {
-              console.warn('Supabase reel insert notice:', insertErr);
-              showToast('Supabase notice: ' + insertErr.message, 'error');
-            } else {
-              showToast('✓ Reel & video synced to Supabase!', 'success');
+          // Track old video to delete if replacing existing
+          if (existingReel && existingReel.videoUrl && existingReel.videoUrl.includes('reels-videos/')) {
+            const oldParts = existingReel.videoUrl.split('reels-videos/');
+            if (oldParts.length > 1) {
+              oldStoragePathToDelete = decodeURIComponent(oldParts[1].split('?')[0]);
             }
-          } catch (err) {
-            console.warn('Supabase reel insert error:', err);
+          }
+        } else if (activePresetSrc) {
+          finalVideoType = 'preset';
+          finalPresetSrc = activePresetSrc;
+          finalVideoUrl = '';
+        } else if (existingReel) {
+          finalVideoType = existingReel.videoType || 'url';
+          finalVideoUrl = existingReel.videoUrl || '';
+          finalPresetSrc = existingReel.presetSrc || '';
+        }
+      } else {
+        // Text-only mode
+        finalVideoType = 'none';
+        finalPresetSrc = '';
+        finalVideoUrl = '';
+        if (existingReel && existingReel.videoUrl && existingReel.videoUrl.includes('reels-videos/')) {
+          const oldParts = existingReel.videoUrl.split('reels-videos/');
+          if (oldParts.length > 1) {
+            oldStoragePathToDelete = decodeURIComponent(oldParts[1].split('?')[0]);
           }
         }
       }
+
+      // 3. Atomically Save / Upsert to Database
+      currentUploadState = UploadState.SAVING;
+      if (adminSaveBtnText) adminSaveBtnText.textContent = '💾 Saving to Cloud Database...';
+
+      const reelPayload = {
+        id: targetReelId,
+        title: title,
+        text: text,
+        media_type: selectedMediaType,
+        video_type: finalVideoType,
+        video_key: '',
+        video_url: finalVideoUrl,
+        preset_src: finalPresetSrc,
+        created_at: new Date(isEditing && existingReel ? (existingReel.createdAt || Date.now()) : Date.now()).toISOString()
+      };
+
+      if (supabaseClient) {
+        const { error: dbErr } = await supabaseClient.from('reels').upsert(reelPayload, { onConflict: 'id' });
+
+        if (dbErr) {
+          // ATOMIC ROLLBACK: Remove newly uploaded storage file to prevent orphaned storage!
+          console.error('Supabase DB save error, rolling back storage upload:', dbErr);
+          if (newUploadedStoragePath) {
+            try {
+              await supabaseClient.storage.from('reels-videos').remove([newUploadedStoragePath]);
+            } catch (rbErr) {
+              console.warn('Storage rollback cleanup notice:', rbErr);
+            }
+          }
+          showToast(`❌ Database save failed: ${dbErr.message}. Upload rolled back.`, 'error');
+          currentUploadState = UploadState.ERROR;
+          if (saveBtn) saveBtn.disabled = false;
+          if (adminSaveBtnText) adminSaveBtnText.textContent = origBtnText;
+          currentUploadState = UploadState.IDLE;
+          return;
+        }
+      }
+
+      // 4. Safe post-save cleanup: Remove replaced old storage video only after DB succeeds
+      if (oldStoragePathToDelete && oldStoragePathToDelete !== newUploadedStoragePath && supabaseClient) {
+        try {
+          await supabaseClient.storage.from('reels-videos').remove([oldStoragePathToDelete]);
+        } catch (delErr) {
+          console.warn('Old storage video cleanup notice:', delErr);
+        }
+      }
+
+      // 5. Update local state
+      const updatedLocalReel = {
+        id: reelPayload.id,
+        title: reelPayload.title,
+        text: reelPayload.text,
+        mediaType: reelPayload.media_type,
+        videoType: reelPayload.video_type,
+        videoKey: '',
+        videoUrl: reelPayload.video_url,
+        presetSrc: reelPayload.preset_src,
+        createdAt: new Date(reelPayload.created_at).getTime()
+      };
+
+      if (isEditing) {
+        const idx = reels.findIndex(r => r.id === targetReelId);
+        if (idx !== -1) reels[idx] = updatedLocalReel;
+        else reels.push(updatedLocalReel);
+      } else {
+        reels.push(updatedLocalReel);
+      }
+
+      saveReels(reels);
+      cleanupVideoPreview();
+      cancelEditing();
+      renderAdminReelsManager();
+      updateAdminMetrics();
+      await renderGloryFeed();
+
+      showToast(isEditing ? '✓ Reel updated & synced to Cloud!' : `✓ Reel #${reels.length} published to Glory's feed!`, 'success');
+      currentUploadState = UploadState.SUCCESS;
+    } catch (err) {
+      console.error('saveReelAction failure:', err);
+      // Atomic rollback on unexpected error
+      if (newUploadedStoragePath && supabaseClient) {
+        try {
+          await supabaseClient.storage.from('reels-videos').remove([newUploadedStoragePath]);
+        } catch (rbErr) {
+          console.warn('Storage rollback cleanup notice:', rbErr);
+        }
+      }
+      showToast('Error saving reel: ' + (err.message || 'Operation failed'), 'error');
+      currentUploadState = UploadState.ERROR;
     } finally {
+      currentUploadState = UploadState.IDLE;
       if (saveBtn) saveBtn.disabled = false;
       if (adminSaveBtnText) adminSaveBtnText.textContent = origBtnText;
     }
@@ -1691,31 +1991,48 @@
   window.__saveReel = saveReelAction;
   window.__deleteReel = deleteReel;
 
+  // STRICT SINGLE EVENT LISTENER (Zero duplicate triggers)
   if (adminSaveReelBtn) {
     adminSaveReelBtn.onclick = saveReelAction;
-    adminSaveReelBtn.addEventListener('click', saveReelAction);
   }
 
-  // --- Delete Reel ---
+  // --- Delete Reel with Complete Cloud Consistency ---
   async function deleteReel(reelId) {
     let reels = getReels();
     const target = reels.find(r => r.id === reelId);
-    if (target) {
-      if (target.videoKey) {
-        await deleteVideoBlob(target.videoKey);
-      }
-      if (target.videoUrl && target.videoUrl.includes('reels-videos') && supabaseClient) {
-        try {
-          const parts = target.videoUrl.split('reels-videos/');
-          if (parts.length > 1) {
-            await supabaseClient.storage.from('reels-videos').remove([parts[1]]);
-          }
-        } catch (err) {
-          console.warn('Storage delete notice:', err);
+    if (!target) return;
+
+    // 1. Delete from Supabase Database FIRST (prevent readers from seeing it)
+    if (supabaseClient) {
+      try {
+        const { error: delDbErr } = await supabaseClient.from('reels').delete().eq('id', reelId);
+        if (delDbErr) {
+          console.warn('Supabase DB delete notice:', delDbErr);
         }
+      } catch (err) {
+        console.warn('Supabase DB delete error:', err);
       }
     }
 
+    // 2. Delete video from Supabase Storage SECOND
+    if (target.videoUrl && target.videoUrl.includes('reels-videos') && supabaseClient) {
+      try {
+        const parts = target.videoUrl.split('reels-videos/');
+        if (parts.length > 1) {
+          const storagePath = decodeURIComponent(parts[1].split('?')[0]);
+          await supabaseClient.storage.from('reels-videos').remove([storagePath]);
+        }
+      } catch (err) {
+        console.warn('Storage delete notice:', err);
+      }
+    }
+
+    // 3. Clean local IndexedDB if any legacy key exists
+    if (target.videoKey) {
+      await deleteVideoBlob(target.videoKey);
+    }
+
+    // 4. Update local state
     reels = reels.filter(r => r.id !== reelId);
     localStorage.setItem('cinema_reels_initialized', 'true');
 
@@ -1726,16 +2043,8 @@
     saveReels(reels);
     renderAdminReelsManager();
     await renderGloryFeed();
-    showToast('Reel permanently deleted.', 'info');
-
-    // Also permanently delete from Supabase so it never returns on sync!
-    if (supabaseClient) {
-      try {
-        await supabaseClient.from('reels').delete().eq('id', reelId);
-      } catch (err) {
-        console.warn('Supabase reel delete notice:', err);
-      }
-    }
+    updateAdminMetrics();
+    showToast('✓ Reel permanently deleted from Cloud & feed.', 'info');
   }
 
   // --- Glory Full-Screen Multi-Reels Renderer (Up to N Reels) ---
@@ -1801,9 +2110,28 @@
           ${(isVideo && videoSrc) ? `
           <!-- Center Video Box: Same size as login, 16:9, centered, NOT zoomed to phone screen -->
           <div class="reel-video-frame-box">
-            <video class="reel-video" playsinline webkit-playsinline x5-playsinline loop preload="${index === 1 ? 'auto' : 'metadata'}" muted src="${videoSrc}"></video>
+            <video class="reel-video" playsinline webkit-playsinline x5-playsinline loop preload="${index === 1 ? 'auto' : (index === 2 ? 'metadata' : 'none')}" muted src="${videoSrc}"></video>
             <div class="video-frame-reflection"></div>
             
+            <!-- Video Buffering Spinner (Neon / Cinematic) -->
+            <div class="reel-video-loader" style="display:none;">
+              <div class="reel-spinner"></div>
+              <span class="reel-loader-text">Loading video...</span>
+            </div>
+
+            <!-- Video Playback Error Box with Retry -->
+            <div class="reel-video-error-box" style="display:none;">
+              <span class="reel-error-icon">⚠️</span>
+              <span class="reel-error-msg">Video could not be played</span>
+              <button type="button" class="reel-retry-btn">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <polyline points="23 4 23 10 17 10"></polyline>
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                </svg>
+                <span>Tap to Retry</span>
+              </button>
+            </div>
+
             <!-- Click to Reveal and Play Overlay -->
             <div class="reel-reveal-overlay">
               <button type="button" class="reel-reveal-btn">
@@ -1871,9 +2199,53 @@
       // Setup click-to-reveal on this slide
       const stage = section.querySelector('.reel-content-stage');
       const video = section.querySelector('.reel-video');
+      const loader = section.querySelector('.reel-video-loader');
+      const errBox = section.querySelector('.reel-video-error-box');
+      const retryBtn = section.querySelector('.reel-retry-btn');
+
+      if (video) {
+        video.addEventListener('waiting', () => {
+          if (loader && !video.paused) loader.style.display = 'flex';
+        });
+        video.addEventListener('stalled', () => {
+          if (loader && !video.paused) loader.style.display = 'flex';
+        });
+        video.addEventListener('playing', () => {
+          if (loader) loader.style.display = 'none';
+          if (errBox) errBox.style.display = 'none';
+        });
+        video.addEventListener('canplay', () => {
+          if (loader) loader.style.display = 'none';
+        });
+        video.addEventListener('error', (errEvt) => {
+          console.warn(`Reel #${index} video playback notice:`, errEvt);
+          if (loader) loader.style.display = 'none';
+          if (errBox) {
+            errBox.style.display = 'flex';
+            const msgEl = errBox.querySelector('.reel-error-msg');
+            if (msgEl) msgEl.textContent = 'Playback interrupted · Tap retry';
+          }
+        });
+
+        if (retryBtn) {
+          retryBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (errBox) errBox.style.display = 'none';
+            if (loader) loader.style.display = 'flex';
+            const curTime = video.currentTime || 0;
+            const curSrc = video.src;
+            video.src = '';
+            video.load();
+            video.src = curSrc;
+            video.currentTime = curTime;
+            video.load();
+            video.play().catch(() => {});
+          });
+        }
+      }
 
       function revealAndTogglePlay(e) {
-        if (e.target.closest('.reel-action-bar') || e.target.closest('.feed-top-bar') || e.target.closest('.reel-reply-box')) return;
+        if (e.target.closest('.reel-action-bar') || e.target.closest('.feed-top-bar') || e.target.closest('.reel-reply-box') || e.target.closest('.reel-retry-btn')) return;
 
         if (!section.classList.contains('revealed')) {
           section.classList.add('revealed');
