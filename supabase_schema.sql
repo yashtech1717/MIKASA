@@ -7,7 +7,7 @@
 create table if not exists public.reels (
   id text primary key,
   title text not null default 'Special Screening from Yash ❤️',
-  text text not null default 'hi glory last msg form yash',
+  text text not null default '',
   media_type text not null default 'video',
   video_type text not null default 'url',
   video_key text default '',

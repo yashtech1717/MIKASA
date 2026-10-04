@@ -160,7 +160,7 @@
 
   // --- Constants & Defaults ---
   const GLORY_INTRO_TEXT = "hi glory last msg form yash";
-  const DEFAULT_ADMIN_TEXT = "hi glory last msg form yash";
+  const DEFAULT_ADMIN_TEXT = "";
   const DEFAULT_INTRO_VIDEO = "assets/love_story_1.mp4";
   const DEFAULT_ADMIN_VIDEO = "assets/love_story_1.mp4";
 
@@ -472,8 +472,8 @@
 
   // --- Configurable Video Constraints ---
   const MAX_VIDEO_SIZE_BYTES = 50 * 1024 * 1024; // 50MB limit
-  const ALLOWED_VIDEO_EXTENSIONS = ['.mp4', '.webm'];
-  const ALLOWED_VIDEO_MIMES = ['video/mp4', 'video/webm'];
+  const ALLOWED_VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov'];
+  const ALLOWED_VIDEO_MIMES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-m4v'];
 
   // --- Upload State Machine ---
   const UploadState = {
@@ -513,53 +513,66 @@
       const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
       return {
         valid: false,
-        error: `Video exceeds the 50MB limit (${sizeMb} MB). Please choose a smaller MP4 or WebM video.`
+        error: `Video exceeds the 50MB limit (${sizeMb} MB). Please choose a smaller video.`
       };
     }
 
     const name = (file.name || '').toLowerCase();
-    const ext = '.' + (name.split('.').pop() || '');
+    const ext = name.includes('.') ? ('.' + name.split('.').pop()) : '';
     const mime = (file.type || '').toLowerCase();
 
-    // Reject non-browser containers immediately
-    const unsupported = ['.mkv', '.avi', '.3gp', '.wmv', '.flv', '.m4v', '.ts', '.hevc'];
-    if (unsupported.includes(ext)) {
+    // Reject definitely unsupported non-browser containers immediately
+    const unsupported = ['.mkv', '.avi', '.3gp', '.wmv', '.flv', '.ts', '.hevc'];
+    if (ext && unsupported.includes(ext)) {
       return {
         valid: false,
-        error: `Format "${ext.toUpperCase()}" is not supported for web browsers. Please provide an MP4 (H.264/AAC) or WebM file.`
+        error: `Format "${ext.toUpperCase()}" is not supported for web browsers. Please provide an MP4, WebM, or MOV file.`
       };
     }
 
-    if (!ALLOWED_VIDEO_EXTENSIONS.includes(ext) && !ALLOWED_VIDEO_MIMES.includes(mime)) {
+    const isMp4 = ext === '.mp4' || mime.includes('mp4') || mime === 'video/x-m4v';
+    const isWebm = ext === '.webm' || mime.includes('webm');
+    const isMov = ext === '.mov' || mime.includes('quicktime');
+    const isGenericVideo = mime.startsWith('video/');
+
+    if (!isMp4 && !isWebm && !isMov && !isGenericVideo && ext) {
       return {
         valid: false,
-        error: 'Please select an MP4 (H.264/AAC) or WebM video file.'
+        error: 'Please select an MP4, WebM, or MOV video file.'
       };
     }
 
-    // In-browser decodability check
+    // In-browser decodability check (non-blocking soft probe)
     return new Promise((resolve) => {
       const testVideo = document.createElement('video');
       testVideo.preload = 'metadata';
       testVideo.muted = true;
       testVideo.playsInline = true;
 
-      const testUrl = URL.createObjectURL(file);
       let resolved = false;
+      let testUrl = '';
+      try {
+        testUrl = URL.createObjectURL(file);
+      } catch (e) {
+        return resolve({ valid: true });
+      }
 
       const cleanup = () => {
-        URL.revokeObjectURL(testUrl);
-        testVideo.removeAttribute('src');
-        testVideo.load();
+        try {
+          if (testUrl) URL.revokeObjectURL(testUrl);
+          testVideo.removeAttribute('src');
+          testVideo.load();
+        } catch (_) {}
       };
 
+      // 4-second timeout: resolve valid so slow decoders or mobile WebKit never block valid files
       const timer = setTimeout(() => {
         if (!resolved) {
           resolved = true;
           cleanup();
           resolve({ valid: true });
         }
-      }, 5000);
+      }, 4000);
 
       testVideo.onloadedmetadata = () => {
         if (!resolved) {
@@ -570,13 +583,7 @@
           const height = testVideo.videoHeight;
           cleanup();
 
-          if (isNaN(duration) || duration <= 0) {
-            resolve({ valid: false, error: 'Video file appears corrupted or has zero duration.' });
-          } else if (!width || !height) {
-            resolve({ valid: false, error: 'Could not detect valid video track dimensions.' });
-          } else {
-            resolve({ valid: true, duration, width, height });
-          }
+          resolve({ valid: true, duration: isFinite(duration) ? duration : undefined, width, height });
         }
       };
 
@@ -585,10 +592,17 @@
           resolved = true;
           clearTimeout(timer);
           cleanup();
-          resolve({
-            valid: false,
-            error: 'Your browser cannot decode this video codec. Please ensure it is standard H.264 video with AAC audio.'
-          });
+          // If extension or mime is MP4/WebM/MOV, do not hard-block because unattached video
+          // elements in headless/battery-saver/mobile contexts often fail metadata loading
+          if (isMp4 || isWebm || isMov || isGenericVideo) {
+            console.warn('Metadata probe warning for video file, proceeding with upload.');
+            resolve({ valid: true });
+          } else {
+            resolve({
+              valid: false,
+              error: 'Browser could not decode this video. Please ensure it is standard H.264 MP4 or WebM.'
+            });
+          }
         }
       };
 
@@ -1319,39 +1333,71 @@
   // --- Upload Video to Supabase Storage Bucket ('reels-videos') ---
   async function uploadVideoToSupabaseStorage(file, reelId) {
     if (!supabaseClient) initSupabase();
-    if (!supabaseClient) throw new Error('Supabase cloud is not connected.');
 
-    const ext = file.name && file.name.endsWith('.webm') ? 'webm' : 'mp4';
+    const savedUrl = (localStorage.getItem('supabase_project_url') || DEFAULT_SUPABASE_URL).trim()
+      .replace(/^['"]|['"]$/g, '').replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
+    const savedKey = (localStorage.getItem('supabase_anon_key') || DEFAULT_SUPABASE_KEY).trim()
+      .replace(/^['"]|['"]$/g, '');
+
+    const name = (file.name || '').toLowerCase();
+    const ext = name.endsWith('.webm') ? 'webm' : (name.endsWith('.mov') ? 'mov' : 'mp4');
     const cleanId = String(reelId).replace(/[^a-zA-Z0-9_-]/g, '_');
     const storagePath = `reels/${cleanId}/${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
+    const contentType = file.type || (ext === 'webm' ? 'video/webm' : (ext === 'mov' ? 'video/quicktime' : 'video/mp4'));
 
-    if (!supabaseClient.storage || typeof supabaseClient.storage.from !== 'function') {
-      throw new Error('Supabase Storage SDK is not available.');
+    let uploadSuccess = false;
+    let lastError = null;
+
+    // 1. Try Supabase JS SDK upload if available
+    if (supabaseClient && supabaseClient.storage && typeof supabaseClient.storage.from === 'function') {
+      try {
+        const { data, error } = await supabaseClient
+          .storage
+          .from('reels-videos')
+          .upload(storagePath, file, {
+            contentType: contentType,
+            upsert: true
+          });
+        if (!error && data) {
+          uploadSuccess = true;
+        } else if (error) {
+          lastError = error;
+          console.warn('Supabase SDK upload notice, falling back to REST:', error);
+        }
+      } catch (err) {
+        lastError = err;
+        console.warn('Supabase SDK upload threw exception, falling back to REST:', err);
+      }
     }
 
-    const { data, error } = await supabaseClient
-      .storage
-      .from('reels-videos')
-      .upload(storagePath, file, {
-        contentType: file.type || (ext === 'webm' ? 'video/webm' : 'video/mp4'),
-        upsert: true
-      });
+    // 2. Direct REST API upload fallback
+    if (!uploadSuccess) {
+      try {
+        const res = await fetch(`${savedUrl}/storage/v1/object/reels-videos/${storagePath}`, {
+          method: 'POST',
+          headers: {
+            'apikey': savedKey,
+            'Authorization': `Bearer ${savedKey}`,
+            'Content-Type': contentType,
+            'x-upsert': 'true'
+          },
+          body: file
+        });
 
-    if (error) {
-      console.error('Supabase storage upload error:', error);
-      throw new Error(error.message || 'Storage upload failed.');
+        if (res.ok) {
+          uploadSuccess = true;
+        } else {
+          const errBody = await res.text();
+          throw new Error(`Storage upload failed (HTTP ${res.status}): ${errBody}`);
+        }
+      } catch (restErr) {
+        console.error('Direct REST upload error:', restErr);
+        throw new Error(restErr.message || (lastError && lastError.message) || 'Storage upload failed.');
+      }
     }
 
-    const { data: urlData } = supabaseClient
-      .storage
-      .from('reels-videos')
-      .getPublicUrl(storagePath);
-
-    if (!urlData || !urlData.publicUrl) {
-      throw new Error('Could not generate public video URL.');
-    }
-
-    return { publicUrl: urlData.publicUrl, storagePath };
+    const publicUrl = `${savedUrl}/storage/v1/object/public/reels-videos/${storagePath}`;
+    return { publicUrl, storagePath };
   }
 
   async function saveSupabaseConfig(e) {
@@ -1695,7 +1741,7 @@
     if (e && e.preventDefault) e.preventDefault();
     editingReelId = null;
 
-    if (adminTitleInput) adminTitleInput.value = 'Special Screening from Yash ❤️';
+    if (adminTitleInput) adminTitleInput.value = '';
     if (adminMsgInput) {
       adminMsgInput.value = '';
       adminMsgInput.focus();
@@ -1736,7 +1782,7 @@
     if (e && e.preventDefault) e.preventDefault();
     editingReelId = null;
 
-    if (adminTitleInput) adminTitleInput.value = 'Special Screening from Yash ❤️';
+    if (adminTitleInput) adminTitleInput.value = '';
     if (adminMsgInput) adminMsgInput.value = '';
     updateLiveGlassPreview();
     setMediaMode('video');
@@ -1776,7 +1822,7 @@
     const saveBtn = adminSaveReelBtn;
     const origBtnText = editingReelId ? 'Save Changes' : 'Add Reel to Feed';
 
-    const text = (adminMsgInput ? adminMsgInput.value.trim() : '') || DEFAULT_ADMIN_TEXT;
+    const text = (adminMsgInput ? adminMsgInput.value.trim() : '');
     const title = (adminTitleInput ? adminTitleInput.value.trim() : '') || 'Special Screening from Yash ❤️';
     let reels = getReels();
     const isEditing = Boolean(editingReelId);
@@ -1807,19 +1853,23 @@
     try {
       if (selectedMediaType === 'video') {
         if (stagedCustomVideoBlob) {
-          // 1. Validate file before starting upload
-          currentUploadState = UploadState.VALIDATING;
-          if (adminSaveBtnText) adminSaveBtnText.textContent = '⏳ Validating Video...';
-          const validation = await validateVideoFile(stagedCustomVideoBlob);
-          if (!validation.valid) {
-            showToast(validation.error || 'Video file validation failed.', 'error');
+          if (stagedCustomVideoBlob.size <= 0) {
+            showToast('The selected video file is empty.', 'error');
+            currentUploadState = UploadState.IDLE;
+            if (saveBtn) saveBtn.disabled = false;
+            if (adminSaveBtnText) adminSaveBtnText.textContent = origBtnText;
+            return;
+          }
+          if (stagedCustomVideoBlob.size > MAX_VIDEO_SIZE_BYTES) {
+            const sizeMb = (stagedCustomVideoBlob.size / (1024 * 1024)).toFixed(1);
+            showToast(`Video exceeds 50MB limit (${sizeMb} MB). Please choose a smaller video.`, 'error');
             currentUploadState = UploadState.IDLE;
             if (saveBtn) saveBtn.disabled = false;
             if (adminSaveBtnText) adminSaveBtnText.textContent = origBtnText;
             return;
           }
 
-          // 2. Upload to Supabase Storage
+          // Upload to Supabase Storage
           currentUploadState = UploadState.UPLOADING;
           if (adminSaveBtnText) adminSaveBtnText.textContent = '☁️ Uploading to Storage...';
           showToast('☁️ Uploading video to Supabase Storage...', 'info');
@@ -2640,6 +2690,10 @@
         cinematicText.style.transform = 'none';
       }
 
+      if (!editingReelId) {
+        if (adminMsgInput) adminMsgInput.value = '';
+        if (adminTitleInput) adminTitleInput.value = '';
+      }
       updateLiveGlassPreview();
       initSupabase();
       switchAdminTab('reels');
