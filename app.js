@@ -461,9 +461,16 @@
   // --- Live Mini Cinema Glass Preview in Admin Studio ---
   function updateLiveGlassPreview() {
     if (!adminMiniGlassPreview || !adminMsgInput) return;
-    const text = adminMsgInput.value.trim() || 'ENTER TEXT FOR GLORY';
-    adminMiniGlassPreview.textContent = text;
-    adminMiniGlassPreview.setAttribute('data-text', text);
+    const text = adminMsgInput.value.trim();
+    if (text) {
+      adminMiniGlassPreview.textContent = text;
+      adminMiniGlassPreview.setAttribute('data-text', text);
+      adminMiniGlassPreview.style.opacity = '1';
+    } else {
+      adminMiniGlassPreview.textContent = 'Preview appears as you type...';
+      adminMiniGlassPreview.setAttribute('data-text', '');
+      adminMiniGlassPreview.style.opacity = '0.35';
+    }
   }
 
   if (adminMsgInput) {
@@ -519,7 +526,6 @@
 
     const name = (file.name || '').toLowerCase();
     const ext = name.includes('.') ? ('.' + name.split('.').pop()) : '';
-    const mime = (file.type || '').toLowerCase();
 
     // Reject definitely unsupported non-browser containers immediately
     const unsupported = ['.mkv', '.avi', '.3gp', '.wmv', '.flv', '.ts', '.hevc'];
@@ -530,84 +536,7 @@
       };
     }
 
-    const isMp4 = ext === '.mp4' || mime.includes('mp4') || mime === 'video/x-m4v';
-    const isWebm = ext === '.webm' || mime.includes('webm');
-    const isMov = ext === '.mov' || mime.includes('quicktime');
-    const isGenericVideo = mime.startsWith('video/');
-
-    if (!isMp4 && !isWebm && !isMov && !isGenericVideo && ext) {
-      return {
-        valid: false,
-        error: 'Please select an MP4, WebM, or MOV video file.'
-      };
-    }
-
-    // In-browser decodability check (non-blocking soft probe)
-    return new Promise((resolve) => {
-      const testVideo = document.createElement('video');
-      testVideo.preload = 'metadata';
-      testVideo.muted = true;
-      testVideo.playsInline = true;
-
-      let resolved = false;
-      let testUrl = '';
-      try {
-        testUrl = URL.createObjectURL(file);
-      } catch (e) {
-        return resolve({ valid: true });
-      }
-
-      const cleanup = () => {
-        try {
-          if (testUrl) URL.revokeObjectURL(testUrl);
-          testVideo.removeAttribute('src');
-          testVideo.load();
-        } catch (_) {}
-      };
-
-      // 4-second timeout: resolve valid so slow decoders or mobile WebKit never block valid files
-      const timer = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          cleanup();
-          resolve({ valid: true });
-        }
-      }, 4000);
-
-      testVideo.onloadedmetadata = () => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timer);
-          const duration = testVideo.duration;
-          const width = testVideo.videoWidth;
-          const height = testVideo.videoHeight;
-          cleanup();
-
-          resolve({ valid: true, duration: isFinite(duration) ? duration : undefined, width, height });
-        }
-      };
-
-      testVideo.onerror = () => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timer);
-          cleanup();
-          // If extension or mime is MP4/WebM/MOV, do not hard-block because unattached video
-          // elements in headless/battery-saver/mobile contexts often fail metadata loading
-          if (isMp4 || isWebm || isMov || isGenericVideo) {
-            console.warn('Metadata probe warning for video file, proceeding with upload.');
-            resolve({ valid: true });
-          } else {
-            resolve({
-              valid: false,
-              error: 'Browser could not decode this video. Please ensure it is standard H.264 MP4 or WebM.'
-            });
-          }
-        }
-      };
-
-      testVideo.src = testUrl;
-    });
+    return { valid: true };
   }
 
   // --- Preview Management with Single URL Revocation ---
@@ -709,6 +638,22 @@
   }
 
   if (adminDropzone) {
+    adminDropzone.addEventListener('click', (e) => {
+      if (e.target === adminVideoFile) return;
+      if (adminVideoFile) {
+        adminVideoFile.value = '';
+        adminVideoFile.click();
+      }
+    });
+
+    adminDropzone.addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.key === ' ') && adminVideoFile) {
+        e.preventDefault();
+        adminVideoFile.value = '';
+        adminVideoFile.click();
+      }
+    });
+
     ['dragenter', 'dragover'].forEach(evt => {
       adminDropzone.addEventListener(evt, (e) => {
         e.preventDefault();
@@ -723,6 +668,7 @@
     });
     adminDropzone.addEventListener('drop', (e) => {
       e.preventDefault();
+      adminDropzone.style.borderColor = '';
       if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
         handleVideoFiles(e.dataTransfer.files);
       }
@@ -1109,13 +1055,25 @@
   const DEFAULT_SUPABASE_URL = 'https://vkzzdnepmwhsnzmeozxr.supabase.co';
   const DEFAULT_SUPABASE_KEY = 'sb_publishable_27dH6hm79SXgqxz8wF25nQ_1IbAhX6s';
 
-  function initSupabase(overrideBadge) {
-    let savedUrl = (localStorage.getItem('supabase_project_url') || DEFAULT_SUPABASE_URL).trim();
-    let savedKey = (localStorage.getItem('supabase_anon_key') || DEFAULT_SUPABASE_KEY).trim();
+  function getValidSupabaseConfig() {
+    let url = (localStorage.getItem('supabase_project_url') || DEFAULT_SUPABASE_URL).trim()
+      .replace(/^['"]|['"]$/g, '').replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
+    let key = (localStorage.getItem('supabase_anon_key') || DEFAULT_SUPABASE_KEY).trim()
+      .replace(/^['"]|['"]$/g, '');
 
-    // Clean any accidentally pasted quotes, /rest/v1 or trailing slashes
-    savedUrl = savedUrl.replace(/^['"]|['"]$/g, '').replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
-    savedKey = savedKey.replace(/^['"]|['"]$/g, '');
+    const isPlaceholderKey = !key || key.length < 20 || key.includes('your-anon-key') || key === 'anon key' || key === 'demo';
+    if (isPlaceholderKey) {
+      key = DEFAULT_SUPABASE_KEY;
+    }
+    const isPlaceholderUrl = !url || !url.startsWith('http') || url.includes('your-project');
+    if (isPlaceholderUrl) {
+      url = DEFAULT_SUPABASE_URL;
+    }
+    return { url, key };
+  }
+
+  function initSupabase(overrideBadge) {
+    const { url: savedUrl, key: savedKey } = getValidSupabaseConfig();
 
     if (supabaseUrlInput && !supabaseUrlInput.value) supabaseUrlInput.value = savedUrl;
     if (supabaseKeyInput && !supabaseKeyInput.value) supabaseKeyInput.value = savedKey;
@@ -1334,10 +1292,7 @@
   async function uploadVideoToSupabaseStorage(file, reelId) {
     if (!supabaseClient) initSupabase();
 
-    const savedUrl = (localStorage.getItem('supabase_project_url') || DEFAULT_SUPABASE_URL).trim()
-      .replace(/^['"]|['"]$/g, '').replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
-    const savedKey = (localStorage.getItem('supabase_anon_key') || DEFAULT_SUPABASE_KEY).trim()
-      .replace(/^['"]|['"]$/g, '');
+    const { url: savedUrl, key: savedKey } = getValidSupabaseConfig();
 
     const name = (file.name || '').toLowerCase();
     const ext = name.endsWith('.webm') ? 'webm' : (name.endsWith('.mov') ? 'mov' : 'mp4');
@@ -1348,29 +1303,54 @@
     let uploadSuccess = false;
     let lastError = null;
 
-    // 1. Try Supabase JS SDK upload if available
-    if (supabaseClient && supabaseClient.storage && typeof supabaseClient.storage.from === 'function') {
-      try {
-        const { data, error } = await supabaseClient
-          .storage
-          .from('reels-videos')
-          .upload(storagePath, file, {
-            contentType: contentType,
-            upsert: true
-          });
-        if (!error && data) {
-          uploadSuccess = true;
-        } else if (error) {
-          lastError = error;
-          console.warn('Supabase SDK upload notice, falling back to REST:', error);
+    // 1. Direct XMLHttpRequest with real-time percentage progress
+    try {
+      uploadSuccess = await new Promise((resolve) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${savedUrl}/storage/v1/object/reels-videos/${storagePath}`, true);
+        xhr.setRequestHeader('apikey', savedKey);
+        xhr.setRequestHeader('Authorization', `Bearer ${savedKey}`);
+        xhr.setRequestHeader('Content-Type', contentType);
+        xhr.setRequestHeader('x-upsert', 'true');
+
+        if (xhr.upload) {
+          xhr.upload.onprogress = (evt) => {
+            if (evt.lengthComputable && evt.total > 0) {
+              const pct = Math.round((evt.loaded / evt.total) * 100);
+              if (adminSaveBtnText) {
+                adminSaveBtnText.textContent = `☁️ Uploading ${pct}%...`;
+              }
+            }
+          };
         }
-      } catch (err) {
-        lastError = err;
-        console.warn('Supabase SDK upload threw exception, falling back to REST:', err);
-      }
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(true);
+          } else {
+            lastError = new Error(`Storage upload HTTP ${xhr.status}: ${xhr.responseText}`);
+            resolve(false);
+          }
+        };
+
+        xhr.onerror = () => {
+          lastError = new Error('Network error during storage upload');
+          resolve(false);
+        };
+
+        xhr.ontimeout = () => {
+          lastError = new Error('Upload timed out');
+          resolve(false);
+        };
+
+        xhr.send(file);
+      });
+    } catch (xhrErr) {
+      lastError = xhrErr;
+      uploadSuccess = false;
     }
 
-    // 2. Direct REST API upload fallback
+    // 2. Direct REST fetch upload fallback
     if (!uploadSuccess) {
       try {
         const res = await fetch(`${savedUrl}/storage/v1/object/reels-videos/${storagePath}`, {
@@ -1388,12 +1368,35 @@
           uploadSuccess = true;
         } else {
           const errBody = await res.text();
-          throw new Error(`Storage upload failed (HTTP ${res.status}): ${errBody}`);
+          lastError = new Error(`Storage upload HTTP ${res.status}: ${errBody}`);
         }
       } catch (restErr) {
-        console.error('Direct REST upload error:', restErr);
-        throw new Error(restErr.message || (lastError && lastError.message) || 'Storage upload failed.');
+        lastError = restErr;
       }
+    }
+
+    // 3. Supabase JS SDK upload fallback
+    if (!uploadSuccess && supabaseClient && supabaseClient.storage && typeof supabaseClient.storage.from === 'function') {
+      try {
+        const { data, error } = await supabaseClient
+          .storage
+          .from('reels-videos')
+          .upload(storagePath, file, {
+            contentType: contentType,
+            upsert: true
+          });
+        if (!error && data) {
+          uploadSuccess = true;
+        } else if (error) {
+          lastError = error;
+        }
+      } catch (sdkErr) {
+        lastError = sdkErr;
+      }
+    }
+
+    if (!uploadSuccess) {
+      throw new Error((lastError && lastError.message) || 'Storage upload failed.');
     }
 
     const publicUrl = `${savedUrl}/storage/v1/object/public/reels-videos/${storagePath}`;
@@ -1456,10 +1459,7 @@
       initSupabase();
     }
 
-    if (!supabaseClient) {
-      if (!isQuiet) showToast('Please paste and save your Supabase URL & Anon Key first.', 'error');
-      return;
-    }
+    const { url: savedUrl, key: savedKey } = getValidSupabaseConfig();
 
     if (!isQuiet) {
       if (syncBtnText) syncBtnText.textContent = '⏳ Syncing Cloud...';
@@ -1467,11 +1467,35 @@
     }
 
     try {
-      // 1. Sync Reels from cloud or empty state
-      const { data: cloudReels, error: reelErr } = await supabaseClient
-        .from('reels')
-        .select('*')
-        .order('created_at', { ascending: true });
+      // 1. Sync Reels from cloud (direct REST first, SDK fallback)
+      let cloudReels = null;
+      let reelErr = null;
+
+      try {
+        const res = await fetch(`${savedUrl}/rest/v1/reels?select=*&order=created_at.asc`, {
+          headers: {
+            'apikey': savedKey,
+            'Authorization': `Bearer ${savedKey}`
+          }
+        });
+        if (res.ok) {
+          cloudReels = await res.json();
+        } else {
+          reelErr = new Error(`HTTP ${res.status}`);
+        }
+      } catch (e) {
+        reelErr = e;
+      }
+
+      if (!cloudReels && supabaseClient && typeof supabaseClient.from === 'function') {
+        try {
+          const sdkRes = await supabaseClient.from('reels').select('*').order('created_at', { ascending: true });
+          if (!sdkRes.error) {
+            cloudReels = sdkRes.data;
+            reelErr = null;
+          }
+        } catch (e) {}
+      }
 
       if (!reelErr && Array.isArray(cloudReels)) {
         if (cloudReels.length > 0) {
@@ -1498,34 +1522,58 @@
       }
 
       // 2. Sync Glory Replies
-      const { data: cloudReplies, error: repErr } = await supabaseClient
-        .from('glory_replies')
-        .select('*')
-        .order('created_at', { ascending: false });
+      let cloudReplies = null;
+      try {
+        const repRes = await fetch(`${savedUrl}/rest/v1/glory_replies?select=*&order=created_at.desc`, {
+          headers: {
+            'apikey': savedKey,
+            'Authorization': `Bearer ${savedKey}`
+          }
+        });
+        if (repRes.ok) cloudReplies = await repRes.json();
+      } catch (e) {}
 
-      if (!repErr && cloudReplies) {
-        if (cloudReplies.length > 0) {
-          const mappedReplies = cloudReplies.map(cr => ({
-            id: cr.id,
-            reelId: cr.reel_id,
-            reelIndex: cr.reel_index,
-            reelTitle: cr.reel_title,
-            reelText: cr.reel_text,
-            text: cr.reply_text,
-            createdAt: cr.created_at ? new Date(cr.created_at).getTime() : Date.now()
-          }));
-          saveGloryReplies(mappedReplies);
-          renderAdminReplies();
-        }
+      if (!cloudReplies && supabaseClient && typeof supabaseClient.from === 'function') {
+        try {
+          const sdkRep = await supabaseClient.from('glory_replies').select('*').order('created_at', { ascending: false });
+          if (!sdkRep.error) cloudReplies = sdkRep.data;
+        } catch (e) {}
+      }
+
+      if (cloudReplies && Array.isArray(cloudReplies) && cloudReplies.length > 0) {
+        const mappedReplies = cloudReplies.map(cr => ({
+          id: cr.id,
+          reelId: cr.reel_id,
+          reelIndex: cr.reel_index,
+          reelTitle: cr.reel_title,
+          reelText: cr.reel_text,
+          text: cr.reply_text,
+          createdAt: cr.created_at ? new Date(cr.created_at).getTime() : Date.now()
+        }));
+        saveGloryReplies(mappedReplies);
+        renderAdminReplies();
       }
 
       // 3. Sync Glory Logins
-      const { data: cloudLogins, error: loginErr } = await supabaseClient
-        .from('glory_logins')
-        .select('*')
-        .order('logged_in_at', { ascending: false });
+      let cloudLogins = null;
+      try {
+        const logRes = await fetch(`${savedUrl}/rest/v1/glory_logins?select=*&order=logged_in_at.desc`, {
+          headers: {
+            'apikey': savedKey,
+            'Authorization': `Bearer ${savedKey}`
+          }
+        });
+        if (logRes.ok) cloudLogins = await logRes.json();
+      } catch (e) {}
 
-      if (!loginErr && cloudLogins && cloudLogins.length > 0) {
+      if (!cloudLogins && supabaseClient && typeof supabaseClient.from === 'function') {
+        try {
+          const sdkLog = await supabaseClient.from('glory_logins').select('*').order('logged_in_at', { ascending: false });
+          if (!sdkLog.error) cloudLogins = sdkLog.data;
+        } catch (e) {}
+      }
+
+      if (cloudLogins && Array.isArray(cloudLogins) && cloudLogins.length > 0) {
         const mappedLogins = cloudLogins.map(cl => ({
           id: cl.id,
           username: cl.username,
@@ -1850,6 +1898,8 @@
     let newUploadedStoragePath = null;
     let oldStoragePathToDelete = null;
 
+    const { url: savedUrl, key: savedKey } = getValidSupabaseConfig();
+
     try {
       if (selectedMediaType === 'video') {
         if (stagedCustomVideoBlob) {
@@ -1933,26 +1983,69 @@
         created_at: new Date(isEditing && existingReel ? (existingReel.createdAt || Date.now()) : Date.now()).toISOString()
       };
 
-      if (supabaseClient) {
-        const { error: dbErr } = await supabaseClient.from('reels').upsert(reelPayload, { onConflict: 'id' });
+      let dbSaveSuccess = false;
+      let dbError = null;
 
-        if (dbErr) {
-          // ATOMIC ROLLBACK: Remove newly uploaded storage file to prevent orphaned storage!
-          console.error('Supabase DB save error, rolling back storage upload:', dbErr);
-          if (newUploadedStoragePath) {
-            try {
-              await supabaseClient.storage.from('reels-videos').remove([newUploadedStoragePath]);
-            } catch (rbErr) {
-              console.warn('Storage rollback cleanup notice:', rbErr);
-            }
-          }
-          showToast(`❌ Database save failed: ${dbErr.message}. Upload rolled back.`, 'error');
-          currentUploadState = UploadState.ERROR;
-          if (saveBtn) saveBtn.disabled = false;
-          if (adminSaveBtnText) adminSaveBtnText.textContent = origBtnText;
-          currentUploadState = UploadState.IDLE;
-          return;
+      // 1. Direct REST PostgREST upsert (most reliable and direct)
+      try {
+        const res = await fetch(`${savedUrl}/rest/v1/reels?on_conflict=id`, {
+          method: 'POST',
+          headers: {
+            'apikey': savedKey,
+            'Authorization': `Bearer ${savedKey}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'resolution=merge-duplicates,return=representation'
+          },
+          body: JSON.stringify(reelPayload)
+        });
+
+        if (res.ok) {
+          dbSaveSuccess = true;
+        } else {
+          const errText = await res.text();
+          dbError = new Error(`DB HTTP ${res.status}: ${errText}`);
+          console.warn('Direct REST DB upsert notice, trying SDK:', dbError);
         }
+      } catch (restErr) {
+        dbError = restErr;
+        console.warn('Direct REST DB upsert exception, trying SDK:', restErr);
+      }
+
+      // 2. SDK upsert fallback
+      if (!dbSaveSuccess && supabaseClient && typeof supabaseClient.from === 'function') {
+        try {
+          const { error } = await supabaseClient.from('reels').upsert(reelPayload, { onConflict: 'id' });
+          if (!error) {
+            dbSaveSuccess = true;
+          } else {
+            dbError = error;
+          }
+        } catch (sdkErr) {
+          dbError = sdkErr;
+        }
+      }
+
+      if (!dbSaveSuccess) {
+        console.error('Database save error:', dbError);
+        if (newUploadedStoragePath) {
+          try {
+            await fetch(`${savedUrl}/storage/v1/object/reels-videos`, {
+              method: 'DELETE',
+              headers: {
+                'apikey': savedKey,
+                'Authorization': `Bearer ${savedKey}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ prefixes: [newUploadedStoragePath] })
+            });
+          } catch (rbErr) {}
+        }
+        showToast(`❌ Database save failed: ${dbError ? dbError.message : 'Unknown error'}. Upload rolled back.`, 'error');
+        currentUploadState = UploadState.ERROR;
+        if (saveBtn) saveBtn.disabled = false;
+        if (adminSaveBtnText) adminSaveBtnText.textContent = origBtnText;
+        currentUploadState = UploadState.IDLE;
+        return;
       }
 
       // 4. Safe post-save cleanup: Remove replaced old storage video only after DB succeeds
@@ -2031,26 +2124,45 @@
     const target = reels.find(r => r.id === reelId);
     if (!target) return;
 
+    const { url: savedUrl, key: savedKey } = getValidSupabaseConfig();
+
     // 1. Delete from Supabase Database FIRST (prevent readers from seeing it)
+    try {
+      await fetch(`${savedUrl}/rest/v1/reels?id=eq.${encodeURIComponent(reelId)}`, {
+        method: 'DELETE',
+        headers: {
+          'apikey': savedKey,
+          'Authorization': `Bearer ${savedKey}`
+        }
+      });
+    } catch (err) {
+      console.warn('Direct REST DB delete notice:', err);
+    }
     if (supabaseClient) {
       try {
-        const { error: delDbErr } = await supabaseClient.from('reels').delete().eq('id', reelId);
-        if (delDbErr) {
-          console.warn('Supabase DB delete notice:', delDbErr);
-        }
-      } catch (err) {
-        console.warn('Supabase DB delete error:', err);
-      }
+        await supabaseClient.from('reels').delete().eq('id', reelId);
+      } catch (err) {}
     }
 
     // 2. Delete video from Supabase Storage SECOND (only if not shared with another reel)
     const isShared = reels.some(r => r.id !== reelId && r.videoUrl === target.videoUrl);
-    if (!isShared && target.videoUrl && target.videoUrl.includes('reels-videos') && supabaseClient) {
+    if (!isShared && target.videoUrl && target.videoUrl.includes('reels-videos')) {
       try {
         const parts = target.videoUrl.split('reels-videos/');
         if (parts.length > 1) {
           const storagePath = decodeURIComponent(parts[1].split('?')[0]);
-          await supabaseClient.storage.from('reels-videos').remove([storagePath]);
+          await fetch(`${savedUrl}/storage/v1/object/reels-videos`, {
+            method: 'DELETE',
+            headers: {
+              'apikey': savedKey,
+              'Authorization': `Bearer ${savedKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ prefixes: [storagePath] })
+          });
+          if (supabaseClient && supabaseClient.storage) {
+            await supabaseClient.storage.from('reels-videos').remove([storagePath]);
+          }
         }
       } catch (err) {
         console.warn('Storage delete notice:', err);

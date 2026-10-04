@@ -302,7 +302,7 @@
             <!-- Live Mini Cinema Glass Preview -->
             <div class="admin-live-glass-preview">
               <span class="live-preview-tag">Cinema Glass Live Preview:</span>
-              <div class="glass-text static-glass-text admin-mini-glass" id="adminMiniGlassPreview" data-text="ENTER TEXT FOR GLORY">ENTER TEXT FOR GLORY</div>
+              <div class="glass-text static-glass-text admin-mini-glass" id="adminMiniGlassPreview" data-text="" style="opacity: 0.35;">Preview appears as you type...</div>
             </div>
           </div>
 
@@ -334,7 +334,7 @@
             <!-- Video Controls Wrapper (Hidden when Text-Only selected) -->
             <div class="video-media-pane" id="videoMediaPane">
               <!-- Dropzone / File Picker (Custom Video Upload) -->
-              <label class="admin-dropzone" id="adminDropzone" for="adminVideoFile">
+              <div class="admin-dropzone" id="adminDropzone" role="button" tabindex="0" aria-label="Tap or drop video file">
                 <input type="file" id="adminVideoFile" accept="video/mp4,video/webm,video/*,.mp4,.webm,.mov" class="hidden-file-input">
                 <svg class="dropzone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -345,7 +345,7 @@
                   <span class="dropzone-main" id="dropzoneMainText">Tap or drop video file</span>
                   <span class="dropzone-sub" id="dropzoneSubText">MP4 (H.264/AAC), WebM supported · Max 50MB · Direct Cloud Upload</span>
                 </div>
-              </label>
+              </div>
 
               <!-- Preset Quick Picks -->
               <div class="preset-row">

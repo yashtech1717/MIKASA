@@ -1027,11 +1027,19 @@ html, body {
   background: rgba(255, 255, 255, 0.03);
   cursor: pointer;
   transition: all 0.25s ease;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-.admin-dropzone:hover {
+.admin-dropzone * {
+  pointer-events: none;
+}
+
+.admin-dropzone:hover,
+.admin-dropzone:focus-visible {
   border-color: #ff3366;
   background: rgba(255, 51, 102, 0.08);
+  outline: none;
 }
 
 .admin-dropzone.has-staged-video {
@@ -1041,7 +1049,14 @@ html, body {
 }
 
 .hidden-file-input {
-  display: none;
+  position: absolute !important;
+  width: 0 !important;
+  height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  border: none !important;
 }
 
 .dropzone-icon {
